@@ -1,0 +1,20 @@
+[project]
+name = "tuney"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "osereme", email = "reme.ibazebo@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "beets>=2.11.0",
+    "typer>=0.26.7",
+]
+
+[project.scripts]
+tuney = "tuney:main"
+
+[build-system]
+requires = ["uv_build>=0.11.23,<0.12.0"]
+build-backend = "uv_build"
