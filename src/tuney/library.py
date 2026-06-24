@@ -14,12 +14,12 @@ def scan(music_dir):
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import", "-A", "-q", music_dir],
         check=True
     )
-    print(DB)
 
 def search(query):
-    print(DB)
     lib = Library(DB)
     return list(lib.items(query))
 
-
+def all_items():
+    lib = Library(DB)
+    return list(lib.items())
         
