@@ -2,3 +2,4 @@
 /src/tuney/__pycache__
 /music/copyrighted
 .DS_Store
+src/tuney/tools.py
