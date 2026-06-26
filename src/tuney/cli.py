@@ -7,7 +7,7 @@ app = typer.Typer()
 def main(ctx: typer.Context):
     """Launch the interactive Terminal UI"""
     if ctx.invoked_subcommand is None:
-        from tuney.tui import TuneyApp
+        from tuney.tui.tui import TuneyApp
         TuneyApp().run()
 
 @app.command()
