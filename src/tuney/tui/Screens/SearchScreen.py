@@ -1,7 +1,7 @@
 from textual.screen import Screen
 from textual.app import ComposeResult
 from tuney import library
-from textual.widgets import Input, DataTable
+from textual.widgets import Input, DataTable, Header, Footer
 from textual.containers import Container
 
 class SearchScreen(Screen):
@@ -14,8 +14,10 @@ class SearchScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Container(id="search-dialog"):
+            yield Header()
             yield Input(placeholder="Search your library…")
             yield DataTable()
+            yield Footer()
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns("Artist", "Title", "Album")

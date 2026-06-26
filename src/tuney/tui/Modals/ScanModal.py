@@ -18,8 +18,15 @@ class ScanModal(ModalScreen):
         padding: 1;
     }
     .hidden { display: none; }
-ListView { height: 1fr; }
-RichLog { height: 1fr; }
+    ListView { height: 1fr; }
+    RichLog { height: 1fr; }
+
+    #modal-title {
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    padding-bottom: 1;
+}
     """
 
     BINDINGS = [
@@ -32,8 +39,12 @@ RichLog { height: 1fr; }
         self._current_dir = Path.cwd()
         self._subdirs: list[Path] = []
         with Container(id="scan-dialog"):
+            yield Label("Scan Directory", id="modal-title")
             yield ListView()
+            yield Label("Press Enter to scan this directory", id="hint")
             yield RichLog(id="scan-log", wrap=True, classes="hidden")
+
+            yield Label("\[Enter] to scan directory | \[esc] to close | [←]/[→] to navigate folders ", id="modal-hint")
 
     def on_mount(self) -> None:
         self._populate_list(self._current_dir)
