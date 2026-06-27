@@ -38,25 +38,50 @@ Running `tuney` with no arguments opens the terminal UI:
 uv run tuney
 ```
 
-From the menu you can:
+From the main menu you can:
 
-- **Search library** — opens a search screen where you can type a query and browse results (Artist / Title / Album) in a table.
-- **Quit** — exits the application.
+- **View Collection** — browse your entire library in a table (Artist / Title / Album / Year / Format). Press `/` to filter with a search box.
+- **Search library** — type a query and browse matching results (Artist / Title / Album) in a table.
+- **Scan Directory** — interactively browse your filesystem and import a folder into the library (see below).
+- **Quit** — exit the application.
 
-**Keyboard shortcuts**
+**Global keys**
 
-| Key      | Action              |
-| -------- | ------------------- |
-| `Enter`  | Submit search query |
-| `Escape` | Back to main menu   |
-| `q`      | Quit                |
+| Key         | Action                     |
+| ----------- | -------------------------- |
+| `↑` / `↓`   | Move the selection         |
+| `Enter`     | Select / submit            |
+| `Escape`    | Back to the previous screen |
+| `q`         | Quit                       |
 
-### Scan a music directory
+#### Scanning from the TUI
+
+Selecting **Scan Directory** opens a file browser starting in your current working
+directory. Navigate to the folder you want to import, then scan it — progress streams
+live as files are added to the library.
+
+| Key             | Action                             |
+| --------------- | ---------------------------------- |
+| `↑` / `↓`       | Move through the list              |
+| `→` / `Enter`   | Open the highlighted folder        |
+| `←`             | Go up to the parent (or select `../`) |
+| `Shift+S`       | Scan the current directory         |
+| `Esc`           | Close                              |
+
+> `Shift+S` is the capital `S` key, so it works in every terminal.
+
+### Scan a music directory (CLI)
 
 Index a folder of music files into the Tuney library:
 
 ```bash
 uv run tuney scan /path/to/music
+```
+
+Running `scan` with no path scans the current directory:
+
+```bash
+uv run tuney scan
 ```
 
 Tuney imports the files into a local Beets database stored in your platform's user data directory (e.g. `~/Library/Application Support/Tuney/Tuney.db` on macOS).
@@ -70,3 +95,13 @@ uv run tuney search "artist:Radiohead"
 ```
 
 Results are printed as `Title (Album)` lines. Query syntax follows the [Beets query language](https://beets.readthedocs.io/en/stable/reference/query.html).
+
+### List your collection
+
+Print every item in your library:
+
+```bash
+uv run tuney collection
+```
+
+Results are printed as `Title (Album)` lines.
