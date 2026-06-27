@@ -15,6 +15,17 @@ def scan(music_dir):
         check=True
     )
 
+def scan_stream(music_dir):
+    proc = subprocess.Popen(
+        ["beet", "-c", str(CONFIG), "-l", str(DB), "import", "-A", music_dir],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    for line in proc.stdout:
+        yield line.rstrip()
+    proc.wait()
+
 def search(query):
     lib = Library(DB)
     return list(lib.items(query))
