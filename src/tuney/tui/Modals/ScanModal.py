@@ -22,11 +22,16 @@ class ScanModal(ModalScreen):
     RichLog { height: 1fr; }
 
     #modal-title {
-    width: 100%;
-    text-align: center;
-    text-style: bold;
-    padding-bottom: 1;
-}
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        padding-bottom: 1;
+    }
+
+    ListView > ListItem.-highlight {
+        background: $accent 30%;
+        color: $text;
+    }
     """
 
     BINDINGS = [
@@ -40,39 +45,50 @@ class ScanModal(ModalScreen):
         self._subdirs: list[Path] = []
         with Container(id="scan-dialog"):
             yield Label("Scan Directory", id="modal-title")
+            yield Label("Press Enter to scan selected directory", id="hint")
+            yield Label(self._current_dir.name+"/", id="dir_label")
             yield ListView()
-            yield Label("Press Enter to scan this directory", id="hint")
             yield RichLog(id="scan-log", wrap=True, classes="hidden")
 
             yield Label("\[Enter] to scan directory | \[esc] to close | [←]/[→] to navigate folders ", id="modal-hint")
 
-    def on_mount(self) -> None:
-        self._populate_list(self._current_dir)
-        self.query_one(ListView).focus()
+    async def on_mount(self) -> None:
+        await self._populate_list(self._current_dir)
 
-    def _populate_list(self, directory: Path) -> None:
+    async def _populate_list(self, directory: Path) -> None:
         self._current_dir = directory
+        self.query_one("#dir_label", Label).update(str(directory)+"/")
         self._subdirs = sorted(
             p for p in directory.iterdir() if p.is_dir() and not p.name.startswith(".")
         )
         list_view = self.query_one(ListView)
-        list_view.clear()
-        for d in self._subdirs:
-            list_view.append(ListItem(Label(d.name)))
+        await list_view.clear()
 
-    def action_expand(self) -> None:
+        items = [ListItem(Label(d.name + "/")) for d in self._subdirs]
+        file_count = len([i for i in directory.iterdir() if i.is_file()])
+        if file_count > 0:
+            items.append(ListItem(Label(f"(+{file_count} Files)")))
+        await list_view.extend(items)
+
+        list_view.index = 0
+        list_view.focus()
+
+    async def action_expand(self) -> None:
         list_view = self.query_one(ListView)
-        if list_view.index is not None:
-            self._populate_list(self._subdirs[list_view.index])
+        if list_view.index is not None and list_view.index < len(self._subdirs):
+            await self._populate_list(self._subdirs[list_view.index])
 
-    def action_go_up(self) -> None:
+    async def action_go_up(self) -> None:
         parent = self._current_dir.parent
         if parent != self._current_dir:
-            self._populate_list(parent)
+            await self._populate_list(parent)
 
     def on_list_view_selected(self, _event: ListView.Selected) -> None:
-        index = self.query_one(ListView).index
-        music_dir = str(self._subdirs[index])
+        if self.query_one(ListView).id == "directory":
+            index = self.query_one(ListView).index
+            music_dir = str(self._subdirs[index])
+        else:
+            music_dir= str(self._current_dir)
         self.query_one(ListView).display = False
         self.query_one(RichLog).remove_class("hidden")
         self.run_worker(lambda: self._run_scan(music_dir), thread=True)
@@ -81,7 +97,7 @@ class ScanModal(ModalScreen):
         log = self.query_one(RichLog)
         for line in library.scan_stream(music_dir):
             self.app.call_from_thread(log.write, line)
-        self.app.call_from_thread(log.write, Text.from_markup("[bold green]Done.[/bold green]"))
+        self.app.call_from_thread(log.write, Text.from_markup("[bold green]Done. Press \[ESC] to Close.[/bold green]"))
 
     def action_back(self) -> None:
         self.app.pop_screen()
