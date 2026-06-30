@@ -34,10 +34,10 @@ class ChatScreen(Screen):
             width: 1fr;
         }
         .row.user {
-            align-horizontal: right;
+            align-horizontal: center;
         }
         .row.ai {
-            align-horizontal: left;
+            align-horizontal: center;
         }
         .bubble {
             width: auto;
@@ -76,7 +76,7 @@ class ChatScreen(Screen):
         self.add_message(text, "user")
         event.input.value = ""
         # Placeholder AI reply — swap in the real agent here.
-        self.add_message("…", "ai")
+        self.add_message("this is a message from the AI", "ai")
 
     def action_back(self) -> None:
         self.app.pop_screen()
