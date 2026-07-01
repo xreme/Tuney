@@ -2,6 +2,7 @@ from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.widgets import Input, Header, Footer, Static, Button
 from textual.containers import VerticalScroll, Horizontal, Vertical
+from tuney import config
 
 
 MASCOT = r"""
@@ -130,7 +131,7 @@ class ChatScreen(Screen):
                 yield Button("-", id="swap", variant="success")
             with Vertical(id="dialog"):
                 yield Static(MASCOT, id="mascot")
-                yield Static("Hi, I'm Tuney!", id="ai-reply")
+                yield Static("Hi, I'm Tuney! How can I help you?", id="ai-reply")
                 yield Static("", id="user-query")
 
         with Vertical(id="history-view", classes="hidden"):
@@ -145,6 +146,8 @@ class ChatScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        if config.load_config()["tui_chat_view"] == "history":
+            self.action_swap()
         self.query_one(Input).focus()
 
     # ---- view toggling ----------------------------------------------------
@@ -152,6 +155,8 @@ class ChatScreen(Screen):
     def action_swap(self) -> None:
         self.query_one("#focus-view").toggle_class("hidden")
         self.query_one("#history-view").toggle_class("hidden")
+        focus_hidden = self.query_one("#focus-view").has_class("hidden")
+        config.write_config("tui_chat_view",  "history" if focus_hidden else "focus")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id in ("swap", "swap-back"):
