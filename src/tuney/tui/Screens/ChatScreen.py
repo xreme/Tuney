@@ -51,15 +51,19 @@ class ChatScreen(Screen):
         }
         #dialog {
             # background: black;
+            height: 1fr;
             align-vertical: bottom;
+        }
+        #ai-reply-scroll {
+            width: 1fr;
+            height: auto;
+            max-height: 1fr;
+            background: #7fb3e8;
         }
         #ai-reply {
             width: 1fr;
             height: auto;
-            max-height: 1fr;
-            overflow-y: auto;
             padding: 1 2;
-            background: #7fb3e8;
             color: black;
         }
         #user-query {
@@ -131,7 +135,8 @@ class ChatScreen(Screen):
                 yield Button("-", id="swap", variant="success")
             with Vertical(id="dialog"):
                 yield Static(MASCOT, id="mascot")
-                yield Static("Hi, I'm Tuney! How can I help you?", id="ai-reply")
+                with VerticalScroll(id="ai-reply-scroll"):
+                    yield Static("Hi, I'm Tuney! How can I help you?", id="ai-reply")
                 yield Static("", id="user-query")
 
         with Vertical(id="history-view", classes="hidden"):
