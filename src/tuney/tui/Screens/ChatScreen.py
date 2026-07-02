@@ -175,12 +175,13 @@ class ChatScreen(Screen):
         self._submit(event.value)
 
     def _submit(self, value: str) -> None:
+        from tuney.agents import collectionSearchAgent
         text = value.strip()
         if not text:
             return
         self.query_one(Input).value = ""
 
-        reply = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+        reply = collectionSearchAgent.query_search_agent(text)
 
         self._set_focus_exchange(query=text, reply=reply)
         self._append_history(text, "user")
@@ -190,6 +191,7 @@ class ChatScreen(Screen):
         """Replace the latest exchange shown in the focus view."""
         self.query_one("#ai-reply", Static).update(reply)
         self.query_one("#user-query", Static).update(query)
+        self.query_one("#ai-reply-scroll").scroll_home(animate=False)
 
     def _append_history(self, text: str, role: str) -> None:
         """Append to the full scrolling conversation view."""
