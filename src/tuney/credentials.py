@@ -14,11 +14,8 @@ def get_api_key():
     if openrouter_key:
         return openrouter_key
 
-
-    
-
 def save_api_key(value):
     keyring.set_password(_SERVICE, _KEY,value)
 
-
-    
+def delete_api_key():
+    keyring.delete_password(_SERVICE, _KEY)
