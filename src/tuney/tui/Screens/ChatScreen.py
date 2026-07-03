@@ -1,8 +1,9 @@
 from textual.screen import Screen
 from textual.app import ComposeResult
-from textual.widgets import Input, Header, Footer, Static, Button
+from textual.widgets import Input, Header, Footer, Static, Button, Markdown
 from textual.containers import VerticalScroll, Horizontal, Vertical
 from tuney import config
+from textual import work
 
 
 MASCOT = r"""
@@ -21,7 +22,7 @@ class Message(Horizontal):
         self._role = role
 
     def compose(self) -> ComposeResult:
-        yield Static(self._text, classes=f"bubble {self._role}")
+        yield Markdown(self._text, classes=f"bubble {self._role}")
 
 
 class ChatScreen(Screen):
@@ -33,99 +34,7 @@ class ChatScreen(Screen):
         ("q", "quit", "Quit"),
     ]
 
-    CSS = """
-        /* ---- Focus view (mascot + latest exchange) ---- */
-        #focus-view {
-            height: 1fr;
-            padding: 1 2;
-        }
-        #topbar {
-            height: auto;
-            align-horizontal: right;
-        }
-        #mascot {
-            width: 1fr;
-            height: auto;
-            text-align: center;
-            margin-bottom: 1;
-        }
-        #dialog {
-            # background: black;
-            height: 1fr;
-            align-vertical: bottom;
-        }
-        #ai-reply-scroll {
-            width: 1fr;
-            height: auto;
-            max-height: 1fr;
-            background: #7fb3e8;
-        }
-        #ai-reply {
-            width: 1fr;
-            height: auto;
-            padding: 1 2;
-            color: black;
-        }
-        #user-query {
-            width: 1fr;
-            height: auto;
-            min-height: 3;
-            padding: 1 2;
-            text-align: center;
-            background: grey;
-            color: black;
-        }
-
-        /* ---- History view (full scrolling conversation) ---- */
-        #history-view {
-            height: 1fr;
-            padding: 1 2;
-        }
-        #history-topbar {
-            height: auto;
-            align-horizontal: right;
-        }
-        #history-scroll {
-            height: 1fr;
-            align-vertical: bottom;
-        }
-        .row {
-            height: auto;
-            width: 1fr;
-            align-horizontal: center;
-        }
-        .bubble {
-            width: auto;
-            max-width: 80%;
-            padding: 1 2;
-            margin: 1 0;
-        }
-        .bubble.user {
-            background: $primary;
-            color: $text;
-            align-horizontal: left;
-        }
-        .bubble.ai {
-            background: $panel;
-            color: $text;
-            align-horizontal: right;
-        }
-
-        /* ---- Composer ---- */
-        #composer {
-            height: auto;
-        }
-        #input {
-            width: 1fr;
-        }
-        #send {
-            min-width: 5;
-        }
-
-        .hidden {
-            display: none;
-        }
-        """
+    CSS_PATH = "ChatScreen.tcss"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -134,9 +43,10 @@ class ChatScreen(Screen):
             with Horizontal(id="topbar"):
                 yield Button("-", id="swap", variant="success")
             with Vertical(id="dialog"):
+                yield Static(id="dialog-spacer")
                 yield Static(MASCOT, id="mascot")
                 with VerticalScroll(id="ai-reply-scroll"):
-                    yield Static("Hi, I'm Tuney! How can I help you?", id="ai-reply")
+                    yield Markdown("Hi, I'm Tuney! How can I help you?", id="ai-reply")
                 yield Static("", id="user-query")
 
         with Vertical(id="history-view", classes="hidden"):
@@ -154,6 +64,28 @@ class ChatScreen(Screen):
         if config.load_config()["tui_chat_view"] == "history":
             self.action_swap()
         self.query_one(Input).focus()
+        self.call_after_refresh(self._cap_reply)
+
+    def on_resize(self) -> None:
+        self._cap_reply()
+
+    def _cap_reply(self) -> None:
+        """Cap the reply panel's height so it hugs short replies but never grows
+        far enough to push the user's query off-screen. The panel scrolls
+        internally once a reply exceeds the available space."""
+        scroll = self.query_one("#ai-reply-scroll")
+        if not scroll.region:                       # not laid out yet
+            return
+        dialog_height = self.query_one("#dialog").region.height
+        query_height = self.query_one("#user-query").region.height
+        # The spacer bottom-anchors the whole mascot + reply + query group, so
+        # positions shift as the reply grows; work from heights instead. The
+        # mascot's 1-line bottom margin isn't in its region, and Textual never
+        # resolves a 1fr widget below 1 row, so reserve a row for the spacer
+        # too or the query gets pushed a line past the dialog.
+        mascot_height = self.query_one("#mascot").region.height + 1
+        available = dialog_height - mascot_height - query_height - 1
+        scroll.styles.max_height = max(3, available)
 
     # ---- view toggling ----------------------------------------------------
 
@@ -175,23 +107,57 @@ class ChatScreen(Screen):
         self._submit(event.value)
 
     def _submit(self, value: str) -> None:
-        from tuney.agents import collectionSearchAgent
         text = value.strip()
         if not text:
             return
         self.query_one(Input).value = ""
-
-        reply = collectionSearchAgent.query_search_agent(text)
-
-        self._set_focus_exchange(query=text, reply=reply)
+        self._set_focus_exchange(query=text, reply="Thinking...")
         self._append_history(text, "user")
-        self._append_history(reply, "ai")
+        self._run_query(text)
+
+    @work(exclusive = True)
+    async def _run_query(self, text: str):
+        from tuney.agents import collectionSearchAgent
+
+        reply = self.query_one("#ai-reply", Markdown)
+        scroll = self.query_one("#ai-reply-scroll")
+        parts: list[str] = []
+        stream = None
+
+        async def _stream():
+            # Created lazily so "Thinking..." stays until the first token arrives.
+            nonlocal stream
+            if stream is None:
+                await reply.update("")
+                stream = Markdown.get_stream(reply)
+            return stream
+
+        try:
+            async for token in collectionSearchAgent.astream_search_agent(text):
+                parts.append(token)
+                await (await _stream()).write(token)
+                scroll.scroll_end(animate=False)    # follow the incoming text
+        except Exception as e:
+            parts.append(f"\n\n**[error]** {e}")
+            await (await _stream()).write(parts[-1])
+
+        if stream is not None:
+            await stream.stop()
+
+        # stream finished — the AI is done responding
+        final = "".join(parts)
+        if not final:
+            await reply.update("(no response)")
+            final = "(no response)"
+        self._append_history(final, "ai")
 
     def _set_focus_exchange(self, query: str, reply: str) -> None:
         """Replace the latest exchange shown in the focus view."""
-        self.query_one("#ai-reply", Static).update(reply)
+        self.query_one("#ai-reply", Markdown).update(reply)
         self.query_one("#user-query", Static).update(query)
         self.query_one("#ai-reply-scroll").scroll_home(animate=False)
+        # The query height may have changed (wrapping); re-cap the reply panel.
+        self.call_after_refresh(self._cap_reply)
 
     def _append_history(self, text: str, role: str) -> None:
         """Append to the full scrolling conversation view."""

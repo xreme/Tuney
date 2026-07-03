@@ -1,0 +1,100 @@
+/* ---- Focus view (mascot + latest exchange) ---- */
+#focus-view {
+    height: 1fr;
+    padding: 1 2;
+}
+#topbar {
+    height: auto;
+    align-horizontal: right;
+}
+#mascot {
+    width: 1fr;
+    height: auto;
+    text-align: center;
+    margin-bottom: 1;
+}
+#dialog {
+    # background: black;
+    height: 1fr;
+}
+#dialog-spacer {
+    /* Absorbs the leftover space so the mascot + reply + query sit at
+       the bottom of the dialog, just above the input. */
+    height: 1fr;
+}
+#ai-reply-scroll {
+    width: 1fr;
+    height: auto;      /* hug the reply; max-height is capped in code */
+    background: #7fb3e8;
+}
+#ai-reply {
+    width: 1fr;
+    height: auto;
+    padding: 1 2;
+    color: black;
+}
+#user-query {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    padding: 1 2;
+    text-align: center;
+    background: grey;
+    color: black;
+}
+
+/* ---- History view (full scrolling conversation) ---- */
+#history-view {
+    height: 1fr;
+    padding: 1 2;
+}
+#history-topbar {
+    height: auto;
+    align-horizontal: right;
+}
+#history-scroll {
+    height: 1fr;
+    align-vertical: bottom;
+}
+.row {
+    height: auto;
+    width: 1fr;
+    align-horizontal: center;
+}
+.bubble {
+    width: auto;
+    max-width: 80%;
+    padding: 1 2;
+    margin: 1 0;
+}
+.bubble.user {
+    background: $primary;
+    color: $text;
+    align-horizontal: left;
+}
+.bubble.ai {
+    width: 1fr;
+    max-width: 80%;
+    background: $panel;
+    color: $text;
+    align-horizontal: right;
+}
+/* Markdown adds its own vertical margins; trim them inside a bubble. */
+.bubble.ai > * {
+    margin: 0;
+}
+
+/* ---- Composer ---- */
+#composer {
+    height: auto;
+}
+#input {
+    width: 1fr;
+}
+#send {
+    min-width: 5;
+}
+
+.hidden {
+    display: none;
+}
