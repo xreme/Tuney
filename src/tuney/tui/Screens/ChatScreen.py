@@ -61,7 +61,7 @@ class ChatScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        if config.load_config()["tui_chat_view"] == "history":
+        if config.get_config().tui_chat_view == config.ChatView.HISTORY:
             self.action_swap()
         self.query_one(Input).focus()
         self.call_after_refresh(self._cap_reply)
@@ -93,7 +93,9 @@ class ChatScreen(Screen):
         self.query_one("#focus-view").toggle_class("hidden")
         self.query_one("#history-view").toggle_class("hidden")
         focus_hidden = self.query_one("#focus-view").has_class("hidden")
-        config.write_config("tui_chat_view",  "history" if focus_hidden else "focus")
+        cfg = config.get_config()
+        cfg.tui_chat_view = (config.ChatView.HISTORY if focus_hidden else config.ChatView.FOCUS)
+        cfg.save()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id in ("swap", "swap-back"):
