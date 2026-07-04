@@ -1,9 +1,11 @@
 import json
+from collections import Counter
 from datetime import datetime
 from os import fsdecode
 from langchain.tools import tool
 from tuney import library
 from tuney.agents.Agent import Agent
+
 
 MODEL = "moonshotai/kimi-k2.5"
 
@@ -76,6 +78,59 @@ def search_collection(query: str):
     """
     return [_serialize(item) for item in library.search(query)]
 
+@tool
+def count_items(query: str) -> str:
+    """
+    Count the matches of a given query against the user's music collection using a beets query.
+
+    Pass a beets query built from the query language described in the system
+    prompt (e.g. `artist:radiohead year:2000..`). Returns the count of matched items.
+    """
+
+    return len(library.search(query))
+
+@tool
+def distinct_values(field: str, query: str = ""):
+    """List every unique value of a field in the collection, with track counts.
+
+    Use this to discover what's actually in the library before searching —
+    e.g. distinct_values("genre") to see all genres, or
+    distinct_values("artist", "genre:rock") for artists within rock.
+    Common fields: genre, artist, albumartist, album, year, label, format.
+    The optional query uses the same beets query language as search_collection.
+    Returns a JSON object mapping each value to how many tracks have it,
+    most common first.
+    """
+    items = library.search(query) if query else library.all_items()
+    counts = Counter(str(item.get(field, "")) for item in items)
+    counts.pop("", None)   # tracks missing the field entirely
+    counts.pop("0", None)  # beets stores missing numeric fields (year) as 0
+    return json.dumps(dict(counts.most_common()))
+
+@tool
+def collection_stats():
+    """Summary statistics for the whole library: track, album, and artist
+    counts, total playtime, and the year range.
+
+    Cheap — prefer this over list_collection for "tell me about my
+    collection" style questions.
+    """
+    items = library.all_items()
+    artists = {item.artist for item in items if item.artist}
+    albums = {(item.albumartist or item.artist, item.album)
+              for item in items if item.album}
+    years = [item.year for item in items if item.year]
+    total_seconds = int(sum(item.length or 0 for item in items))
+    hours, minutes = divmod(total_seconds // 60, 60)[::-1] if False else (total_seconds // 3600, (total_seconds % 3600) // 60)
+
+    return json.dumps({
+        "tracks": len(items),
+        "albums": len(albums),
+        "artists": len(artists),
+        "total_playtime": f"{hours}h {minutes}m",
+        "earliest_year": min(years) if years else None,
+        "latest_year": max(years) if years else None,
+    })
 
 @tool
 def item_information(itemId: int):
@@ -95,7 +150,8 @@ def item_information(itemId: int):
     return json.dumps(item_json)
 
 
-TOOLS = [list_collection, search_collection, item_information]
+TOOLS = [list_collection, search_collection, 
+         item_information, count_items, distinct_values, collection_stats]
 
 
 def _dated_prompt() -> str:
