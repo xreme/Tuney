@@ -6,7 +6,10 @@ class TuneyApp(App):
 
     TITLE = "TUNEY"
 
+    ansi_color = True
+
     def on_mount(self) -> None:
+        self.theme = "ansi-dark"
         self.push_screen(MenuScreen())
 
 if __name__ == "__main__":

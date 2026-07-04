@@ -14,7 +14,6 @@
     margin-bottom: 1;
 }
 #dialog {
-    # background: black;
     height: 1fr;
 }
 #dialog-spacer {
@@ -25,13 +24,13 @@
 #ai-reply-scroll {
     width: 1fr;
     height: auto;      /* hug the reply; max-height is capped in code */
-    background: #7fb3e8;
+    background: $panel;
 }
 #ai-reply {
     width: 1fr;
     height: auto;
     padding: 1 2;
-    color: black;
+    color: $text;
 }
 #user-query {
     width: 1fr;
@@ -39,8 +38,8 @@
     min-height: 3;
     padding: 1 2;
     text-align: center;
-    background: grey;
-    color: black;
+    background: $primary;
+    color: $text;
 }
 
 /* ---- History view (full scrolling conversation) ---- */
