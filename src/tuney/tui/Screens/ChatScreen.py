@@ -119,7 +119,7 @@ class ChatScreen(Screen):
 
     @work(exclusive = True)
     async def _run_query(self, text: str):
-        from tuney.agents import collectionSearchAgent
+        from tuney.agents.collectionSearchAgent import collection_search_agent
 
         reply = self.query_one("#ai-reply", Markdown)
         scroll = self.query_one("#ai-reply-scroll")
@@ -135,7 +135,7 @@ class ChatScreen(Screen):
             return stream
 
         try:
-            async for token in collectionSearchAgent.astream_search_agent(text):
+            async for token in collection_search_agent.astream(text):
                 parts.append(token)
                 await (await _stream()).write(token)
                 scroll.scroll_end(animate=False)    # follow the incoming text

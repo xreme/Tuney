@@ -1,21 +1,13 @@
-from langchain.agents import create_agent
-# from deepagents import create_deep_agent
-from langchain_openrouter import ChatOpenRouter
-from langchain.tools import tool
-from langgraph.checkpoint.memory import InMemorySaver
-from langchain_core.messages import AIMessageChunk
-from tuney import library
-from tuney.credentials import get_api_key
 import json
 from datetime import datetime
 from os import fsdecode
+from langchain.tools import tool
+from tuney import library
+from tuney.agents.Agent import Agent
 
 MODEL = "moonshotai/kimi-k2.5"
 
-SYSTEM_PROMPT = f"""
-
-Date: {datetime.now()}
-
+SYSTEM_PROMPT = """
 You are Tuney, a helpful assistant. You will only answer questions related to music.
 
 You have access to the user's music collection. Prefer `search_collection` with a
@@ -84,6 +76,7 @@ def search_collection(query: str):
     """
     return [_serialize(item) for item in library.search(query)]
 
+
 @tool
 def item_information(itemId: int):
     """
@@ -91,10 +84,9 @@ def item_information(itemId: int):
     Useful for fetching item specific information.
     Ex: '42'
     """
-
     item = library.get_item(itemId)
     if item is None:
-        return f"No item foud with the beets_id {itemId}"
+        return f"No item found with the beets_id {itemId}"
     item_json = {
         k: (fsdecode(v) if isinstance(v, bytes) else v)
         for k, v in dict(item).items()
@@ -102,76 +94,16 @@ def item_information(itemId: int):
 
     return json.dumps(item_json)
 
-_agent = None
+
+TOOLS = [list_collection, search_collection, item_information]
 
 
-def _get_agent():
-    global _agent
-    if _agent is not None:
-        return _agent
-
-    key = get_api_key()
-    if not key:
-        raise RuntimeError("No API key provided")
-
-    model = ChatOpenRouter(
-        model=MODEL,
-        openrouter_api_key=key,
-    )
-
-    _agent = create_agent(
-        model = model,
-        tools=[list_collection, search_collection, item_information],
-        system_prompt= SYSTEM_PROMPT,
-        checkpointer=InMemorySaver(),
-    )
-
-    return _agent
-
-def query_search_agent(message: str, thread_id: str = "default") -> str:
-    result = _get_agent().invoke(
-        {
-            "messages": [{
-                "role":"user",
-                "content": message
-            }]
-        },
-        config={"configurable": {"thread_id": thread_id}},
-    )
-
-    return result["messages"][-1].content_blocks[-1]['text']
+def _dated_prompt() -> str:
+    return f"Date: {datetime.now()}\n{SYSTEM_PROMPT}"
 
 
-async def aquery_search_agent(message: str, thread_id: str = "default") -> str:
-    result = await _get_agent().ainvoke(
-        {
-            "messages": [{
-                "role":"user",
-                "content": message
-            }]
-        },
-        config={"configurable": {"thread_id": thread_id}},
-    )
-
-    return result["messages"][-1].content_blocks[-1]['text']
-
-async def astream_search_agent(message: str, thread_id: str = "default"):
-    """Yield the assistant's answer text token-by-token.
-
-    Skips reasoning and tool-call chunks; only the visible answer text is
-    streamed. The generator finishes when the agent is done responding.
-    """
-    async for chunk, _meta in _get_agent().astream(
-        {
-            "messages": [{
-                "role":"user",
-                "content": message
-            }]
-        },
-        config={"configurable": {"thread_id": thread_id}},
-        stream_mode="messages",
-    ):
-        if isinstance(chunk, AIMessageChunk):
-            for block in chunk.content_blocks:
-                if block.get("type") == "text" and block.get("text"):
-                    yield block["text"]
+collection_search_agent = Agent(
+    model=MODEL,
+    system_prompt=_dated_prompt,
+    tools=TOOLS,
+)
