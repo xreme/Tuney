@@ -39,3 +39,19 @@ def all_items():
 def get_item(item_id: int):
     lib = Library(DB)
     return lib.get_item(item_id)
+
+def duplicates():
+    """Songs that exist as more than one file, as a list of item groups."""
+    out = subprocess.run(
+        ["beet", "-c", str(CONFIG), "-l", str(DB), "duplicates", "--full", "--format", "$id"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    lib = Library(DB)
+    groups = {}
+    for line in out.stdout.splitlines():
+        # The plugin prints "<id>: <number of copies>" per item.
+        item = lib.get_item(int(line.split(":")[0]))
+        groups.setdefault((item.artist, item.title), []).append(item)
+    return list(groups.values())

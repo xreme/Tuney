@@ -1,5 +1,11 @@
+plugins: duplicates
+
 import:
   copy: no
   move: no
   write: no
-  duplicate_action: skip
+  duplicate_action: keep
+
+duplicates:
+  keys: [artist, title]
+  strict: yes
