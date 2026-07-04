@@ -9,6 +9,8 @@ dirs = PlatformDirs("Tuney")
 os.makedirs(dirs.user_data_path, exist_ok=True)
 DB = dirs.user_data_path/"Tuney.db"
 
+# TODO implement library singleton
+
 def scan(music_dir):
     subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import", "-A", "-q", music_dir],
@@ -34,3 +36,6 @@ def all_items():
     lib = Library(DB)
     return list(lib.items())
         
+def get_item(item_id: int):
+    lib = Library(DB)
+    return lib.get_item(item_id)

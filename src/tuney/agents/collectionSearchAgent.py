@@ -8,6 +8,7 @@ from tuney import library
 from tuney.credentials import get_api_key
 import json
 from datetime import datetime
+from os import fsdecode
 
 MODEL = "moonshotai/kimi-k2.5"
 
@@ -83,6 +84,23 @@ def search_collection(query: str):
     """
     return [_serialize(item) for item in library.search(query)]
 
+@tool
+def item_information(itemId: int):
+    """
+    Retrieve full information about a specific item in the User's internal library DB by beets_id.
+    Useful for fetching item specific information.
+    Ex: '42'
+    """
+
+    item = library.get_item(itemId)
+    if item is None:
+        return f"No item foud with the beets_id {itemId}"
+    item_json = {
+        k: (fsdecode(v) if isinstance(v, bytes) else v)
+        for k, v in dict(item).items()
+    }
+
+    return json.dumps(item_json)
 
 _agent = None
 
@@ -103,7 +121,7 @@ def _get_agent():
 
     _agent = create_agent(
         model = model,
-        tools=[list_collection, search_collection],
+        tools=[list_collection, search_collection, item_information],
         system_prompt= SYSTEM_PROMPT,
         checkpointer=InMemorySaver(),
     )
