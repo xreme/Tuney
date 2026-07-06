@@ -78,15 +78,7 @@ class Agent:
         return result["messages"][-1].content_blocks[-1]["text"]
 
     async def astream(self, message: str):
-        """Yield the assistant's answer text token-by-token.
-
-        Skips reasoning and tool-call chunks; only the visible answer text is
-        streamed. The generator finishes when the agent is done responding.
-
-        Raises RuntimeError if the underlying stream goes silent for
-        _STREAM_INACTIVITY_TIMEOUT seconds, so a dead connection surfaces as
-        an error instead of hanging the caller forever.
-        """
+        """Yield ("reasoning" | "text", token) pairs as the assistant responds. """
         stream = aiter(self._get_agent().astream(
             self._payload(message),
             config=self._config(),
@@ -108,4 +100,6 @@ class Agent:
             if isinstance(chunk, AIMessageChunk):
                 for block in chunk.content_blocks:
                     if block.get("type") == "text" and block.get("text"):
-                        yield block["text"]
+                        yield "text", block["text"]
+                    elif block.get("type") == "reasoning" and block.get("reasoning"):
+                        yield "reasoning", block["reasoning"]

@@ -119,6 +119,8 @@ class ChatScreen(Screen):
         self._append_history(text, "user")
         self._run_query(text)
 
+    THINKING_TAIL_CHARS = 300
+
     @work(exclusive = True)
     async def _run_query(self, text: str):
         from tuney.agents.collectionSearchAgent import collection_search_agent
@@ -126,18 +128,32 @@ class ChatScreen(Screen):
         reply = self.query_one("#ai-reply", Markdown)
         scroll = self.query_one("#ai-reply-scroll")
         parts: list[str] = []
+        thinking: list[str] = []
         stream = None
 
         async def _stream():
-            # Created lazily so "Thinking..." stays until the first token arrives.
             nonlocal stream
             if stream is None:
                 await reply.update("")
                 stream = Markdown.get_stream(reply)
             return stream
 
+        async def _show_thinking():
+            trace = "".join(thinking)
+            tail = trace[-self.THINKING_TAIL_CHARS:]
+            if len(trace) > self.THINKING_TAIL_CHARS:
+                # Cut at a word boundary so the tail doesn't open mid-word.
+                tail = "…" + tail.split(" ", 1)[-1]
+            quoted = "\n".join(f"> {line}" for line in tail.splitlines())
+            await reply.update(f"Thinking...\n\n{quoted}")
+
         try:
-            async for token in collection_search_agent.astream(text):
+            async for kind, token in collection_search_agent.astream(text):
+                if kind == "reasoning":
+                    if stream is None:      # answer hasn't started yet
+                        thinking.append(token)
+                        await _show_thinking()
+                    continue
                 parts.append(token)
                 await (await _stream()).write(token)
                 scroll.scroll_end(animate=False)    # follow the incoming text
