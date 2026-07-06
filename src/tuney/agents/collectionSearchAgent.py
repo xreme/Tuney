@@ -149,9 +149,59 @@ def item_information(itemId: int):
 
     return json.dumps(item_json)
 
+@tool
+def find_duplicates():
+    """Find songs that exist more than once in the user's collection, grouped
+    by matching artist + title.
 
-TOOLS = [list_collection, search_collection, 
-         item_information, count_items, distinct_values, collection_stats]
+    Returns a list of groups; each group lists every copy of one song with its
+    album, year, format, bitrate, and beets_id. An empty list means no
+    duplicates. Scans the whole library — no query needed.
+
+    Interpret each group before reporting; do not present the raw groups:
+    - Copies on the SAME album are true file duplicates (the actionable kind).
+    - Copies on DIFFERENT albums are usually intentional: deluxe/expanded
+      editions, compilations, or singles. Treat albums as editions of the same
+      release when one album name extends the other (e.g. "Glockaveli" and
+      "Glockaveli: The Don"). Summarize edition overlap at the album level
+      ("all 18 tracks of X also appear on Y") instead of listing every track,
+      and do not call these duplicates.
+    - Only recommend which copy to remove if the user explicitly asks; base
+      that on format and bitrate (keep the highest quality), and never imply
+      you can delete anything yourself — you can't.
+    """
+    groups = library.duplicates()
+    return json.dumps([
+        [{
+            "title": it.title, "artist": it.artist, "album": it.album,
+            "year": it.year, "format": it.format, "bitrate": it.bitrate,
+            "file_location": fsdecode(it.path), "beets_id": it.id,
+        } for it in group]
+        for group in groups
+    ])
+
+
+@tool
+def locate_file(itemId: int):
+    """
+    Return the absolute path of a track's audio file on disk, looked up by beets_id.
+
+    Find the beets_id with `search_collection` first. Use this when the user asks
+    where a track is stored or wants to open the file itself.
+    Reports if the item doesn't exist or its file is missing from disk.
+    """
+    try:
+        path = library.locate_file(itemId)
+    except FileNotFoundError as missing:
+        return f"The library entry points to {missing.args[0]}, but no file exists there anymore."
+    if path is None:
+        return f"No item found with the beets_id {itemId}"
+    return path
+
+
+TOOLS = [list_collection, search_collection,
+         item_information, count_items, distinct_values,
+           collection_stats, find_duplicates, locate_file]
 
 
 def _dated_prompt() -> str:
