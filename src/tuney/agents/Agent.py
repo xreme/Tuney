@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from collections.abc import Callable, Sequence
 
@@ -8,6 +9,10 @@ from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.memory import InMemorySaver
 
 from tuney.credentials import get_api_key
+
+_REQUEST_TIMEOUT_MS = 60_000
+
+_STREAM_INACTIVITY_TIMEOUT = 120.0
 
 
 class Agent:
@@ -47,7 +52,11 @@ class Agent:
             prompt = prompt()
 
         self._agent = create_agent(
-            model=ChatOpenRouter(model=self._model, openrouter_api_key=key),
+            model=ChatOpenRouter(
+                model=self._model,
+                openrouter_api_key=key,
+                timeout=_REQUEST_TIMEOUT_MS,
+            ),
             tools=self._tools,
             system_prompt=prompt,
             checkpointer=InMemorySaver(),
@@ -73,12 +82,29 @@ class Agent:
 
         Skips reasoning and tool-call chunks; only the visible answer text is
         streamed. The generator finishes when the agent is done responding.
+
+        Raises RuntimeError if the underlying stream goes silent for
+        _STREAM_INACTIVITY_TIMEOUT seconds, so a dead connection surfaces as
+        an error instead of hanging the caller forever.
         """
-        async for chunk, _meta in self._get_agent().astream(
+        stream = aiter(self._get_agent().astream(
             self._payload(message),
             config=self._config(),
             stream_mode="messages",
-        ):
+        ))
+        while True:
+            try:
+                chunk, _meta = await asyncio.wait_for(
+                    anext(stream), timeout=_STREAM_INACTIVITY_TIMEOUT
+                )
+            except StopAsyncIteration:
+                return
+            except TimeoutError:
+                raise RuntimeError(
+                    "The AI service stopped responding "
+                    f"(no data for {_STREAM_INACTIVITY_TIMEOUT:.0f}s). "
+                    "Check your connection and try again."
+                ) from None
             if isinstance(chunk, AIMessageChunk):
                 for block in chunk.content_blocks:
                     if block.get("type") == "text" and block.get("text"):

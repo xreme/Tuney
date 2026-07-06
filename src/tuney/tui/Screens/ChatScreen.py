@@ -1,3 +1,5 @@
+import asyncio
+
 from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.widgets import Input, Header, Footer, Static, Button, Markdown
@@ -139,6 +141,13 @@ class ChatScreen(Screen):
                 parts.append(token)
                 await (await _stream()).write(token)
                 scroll.scroll_end(animate=False)    # follow the incoming text
+        except asyncio.CancelledError:
+            # Worker cancelled (new query submitted, screen closed). Keep any
+            # partial reply in history instead of losing it silently; no
+            # awaits here — the task is already being torn down.
+            if parts:
+                self._append_history("".join(parts) + "\n\n*(interrupted)*", "ai")
+            raise
         except Exception as e:
             parts.append(f"\n\n**[error]** {e}")
             await (await _stream()).write(parts[-1])
