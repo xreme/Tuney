@@ -13,9 +13,12 @@ class ChatView(StrEnum):
     FOCUS =  'focus'
     HISTORY = 'history'
 
+DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5"
+
 @dataclass
 class Config:
     tui_chat_view: ChatView = ChatView.FOCUS
+    chat_model: str = DEFAULT_CHAT_MODEL
 
     def __post_init__ (self):
         for f in fields(self):

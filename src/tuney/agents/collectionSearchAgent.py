@@ -3,11 +3,9 @@ from collections import Counter
 from datetime import datetime
 from os import fsdecode
 from langchain.tools import tool
-from tuney import library
+from tuney import config, library
 from tuney.agents.Agent import Agent
 
-
-MODEL = "moonshotai/kimi-k2.5"
 
 SYSTEM_PROMPT = """
 You are Tuney, a helpful assistant. You will only answer questions related to music.
@@ -188,10 +186,17 @@ def locate_file(itemId: int):
 
     Find the beets_id with `search_collection` first. Use this when the user asks
     where a track is stored or wants to open the file itself.
-    Reports if the item doesn't exist or its file is missing from disk.
+    Reports if the item doesn't exist, its drive isn't mounted right now, or
+    its file is missing from disk.
     """
     try:
         path = library.locate_file(itemId)
+    except library.DriveNotMounted as missing:
+        return (
+            f"The file was at {missing.args[0]} when it was imported, but the "
+            "drive it lives on isn't mounted right now, so the file can't be "
+            "accessed. Reconnect the drive to use it."
+        )
     except FileNotFoundError as missing:
         return f"The library entry points to {missing.args[0]}, but no file exists there anymore."
     if path is None:
@@ -209,7 +214,7 @@ def _dated_prompt() -> str:
 
 
 collection_search_agent = Agent(
-    model=MODEL,
+    model=lambda: config.get_config().chat_model,
     system_prompt=_dated_prompt,
     tools=TOOLS,
 )

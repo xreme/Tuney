@@ -26,13 +26,14 @@ class Agent:
     def __init__(
         self,
         *,
-        model: str,
+        model: str | Callable[[], str],
         system_prompt: str | Callable[[], str],
         tools: Sequence[BaseTool] = (),
         thread_id: str | None = None,
     ):
-        # A callable system_prompt is evaluated when the agent is first used,
-        # so prompts can include values that must be fresh (e.g. the date).
+        # A callable model or system_prompt is evaluated when the agent is
+        # first used, so both can come from values that must be fresh
+        # (e.g. the date, or a setting changed since import).
         self._model = model
         self._system_prompt = system_prompt
         self._tools = list(tools)
@@ -51,9 +52,13 @@ class Agent:
         if callable(prompt):
             prompt = prompt()
 
+        model = self._model
+        if callable(model):
+            model = model()
+
         self._agent = create_agent(
             model=ChatOpenRouter(
-                model=self._model,
+                model=model,
                 openrouter_api_key=key,
                 timeout=_REQUEST_TIMEOUT_MS,
             ),
