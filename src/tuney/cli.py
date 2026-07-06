@@ -32,3 +32,15 @@ def collection():
     results = library.all_items()
     for item in results:
         typer.echo(f"{item.title} ({item.album})")
+
+@app.command()
+def duplicates():
+    """List songs that exist in more than one file."""
+    groups = library.duplicates()
+    if not groups:
+        typer.echo("No duplicates found")
+        return
+    for group in groups:
+        typer.echo(f"{group[0].artist} - {group[0].title}")
+        for item in group:
+            typer.echo(f"  {item.filepath}")

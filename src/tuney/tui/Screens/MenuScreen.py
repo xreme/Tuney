@@ -1,7 +1,7 @@
 from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.widgets import Header, Footer, ListView, ListItem, Label
-from tuney.tui.Screens import SearchScreen, CollectionScreen
+from tuney.tui.Screens import SearchScreen, CollectionScreen, ChatScreen, SettingScreen
 from tuney.tui.Modals import ScanModal
 
 class MenuScreen(Screen):
@@ -14,7 +14,9 @@ class MenuScreen(Screen):
         yield ListView(
             ListItem(Label("View Collection"), id="collection"),
             ListItem(Label("Search library"), id="search"),
+            ListItem(Label("Chat"), id="chat"),
             ListItem(Label("Scan Directory"), id="scan"),
+            ListItem(Label("Settings"), id="settings"),
             ListItem(Label("Quit"), id="quit"),
         )
         yield Footer()
@@ -27,8 +29,11 @@ class MenuScreen(Screen):
             self.app.push_screen(SearchScreen())
         elif event.item.id == "collection":
             self.app.push_screen(CollectionScreen())
+        elif event.item.id == "chat":
+            self.app.push_screen(ChatScreen())
         elif event.item.id == "scan":
             self.app.push_screen(ScanModal())
-            # library.scan("./")
+        elif event.item.id == "settings":
+            self.app.push_screen(SettingScreen())
         elif event.item.id == "quit":
             self.app.exit()
