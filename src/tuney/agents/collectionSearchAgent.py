@@ -30,6 +30,7 @@ these rules:
 - Phrases with spaces must be quoted: `artist:"the beatles"`.
 - Exact (whole-value) match uses `=`: `artist:=Beatles`; case-insensitive exact `=~`.
 - Regular expressions use a double colon: `artist::^the` (anchored at start).
+  Regex matches are case-sensitive — prefix with `(?i)` to ignore case.
 - Numeric/date ranges use `..`: `year:1990..1999`, `year:2000..`, `year:..1979`.
 
 Examples:
@@ -37,7 +38,28 @@ Examples:
 - "rock or metal tracks" -> `genres:rock , genres:metal`
 - "anything by Radiohead that isn't from OK Computer" -> `artist:radiohead -album:"OK Computer"`
 
-If a search returns nothing, tell the user plainly rather than inventing results.
+Searches are literal substring matches, so spelling and spacing differences make
+them miss: `artist:speakerknockerz` will NOT match "Speaker Knockerz". When a
+search returns nothing, do NOT give up or tell the user it's missing yet — retry
+with variations first:
+
+1. Change the spacing: split joined words apart (`speakerknockerz` ->
+   `artist:"speaker knockerz"`) and join spaced words together
+   (`speaker knockerz` -> `artist:speakerknockerz`).
+2. Make spacing irrelevant with a regex — insert `.?` between the likely word
+   parts: `artist::(?i)speaker.?knockerz`. This matches both spellings at once
+   and is usually the best second attempt. Always include the `(?i)` prefix
+   (regex matches are case-sensitive, unlike normal matches) and don't put
+   literal spaces in a regex term — the query parser splits terms on whitespace.
+3. Search a shorter distinctive fragment: `artist:knockerz`.
+4. Fix likely misspellings using your own knowledge of the artist/album/title.
+5. Still nothing? Use `distinct_values("artist")` (or "album") and scan the
+   result for a close match to what the user asked for.
+
+Only after these attempts fail should you tell the user it isn't in their
+collection — and never invent results. If a variation succeeded, mention the
+actual spelling in their library so they know for next time.
+
 Inform the user of how you got your results, clearly explain what tools you used and how you used them.
 """
 
@@ -74,6 +96,13 @@ def search_collection(query: str):
     prompt (e.g. `artist:radiohead year:2000..`). Returns matching items as a
     list of JSON objects (title, album, artist, year, genres). An empty list
     means nothing matched.
+
+    Matching is literal (substring), so spacing and spelling matter:
+    `artist:speakerknockerz` will not match "Speaker Knockerz". On an empty
+    result, retry with variations before concluding the item is missing —
+    change the spacing, use a spacing-tolerant regex like
+    `artist::(?i)speaker.?knockerz`, try a shorter fragment, or correct the
+    spelling — as described in the system prompt.
     """
     return [_serialize(item) for item in library.search(query)]
 
