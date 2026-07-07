@@ -1,9 +1,11 @@
 import os
 import subprocess
 from pathlib import Path
+import beets
 from beets.library import Library
 from platformdirs import PlatformDirs
 
+beets.config.read()
 CONFIG = Path("config/beets.yaml")
 dirs = PlatformDirs("Tuney")
 os.makedirs(dirs.user_data_path, exist_ok=True)
@@ -40,17 +42,31 @@ def get_item(item_id: int):
     lib = Library(DB)
     return lib.get_item(item_id)
 
+class DriveNotMounted(FileNotFoundError):
+    """The volume holding the file isn't mounted right now."""
+
+def _volume_root(path: str):
+    """The /Volumes/<name> root of a path, or None for non-volume paths."""
+    parts = Path(path).parts
+    if len(parts) >= 3 and parts[:2] == ("/", "Volumes"):
+        return Path(*parts[:3])
+    return None
+
 def locate_file(item_id: int):
     """Absolute path of an item's audio file on disk.
 
-    Returns None when no item has this id. Raises FileNotFoundError when the
-    library entry exists but the file is gone (e.g. the drive is unmounted).
+    Returns None when no item has this id. Raises DriveNotMounted when the
+    file's volume isn't mounted, and FileNotFoundError when the volume is
+    there but the file is gone.
     """
     item = get_item(item_id)
     if item is None:
         return None
     path = os.fsdecode(item.path)
     if not os.path.exists(path):
+        volume = _volume_root(path)
+        if volume is not None and not volume.exists():
+            raise DriveNotMounted(path)
         raise FileNotFoundError(path)
     return path
 
