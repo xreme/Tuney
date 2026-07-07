@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 from textual.app import App
 from .Screens.MenuScreen import MenuScreen
 
@@ -7,6 +10,11 @@ class TuneyApp(App):
     TITLE = "TUNEY"
 
     ansi_color = True
+
+    def copy_to_clipboard(self, text: str) -> None:
+        super().copy_to_clipboard(text)
+        if sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode(), check=False)
 
     def on_mount(self) -> None:
         self.theme = "ansi-dark"
