@@ -9,6 +9,7 @@ from tuney.agents.Agent import Agent
 
 SYSTEM_PROMPT = """
 You are Tuney, a helpful assistant. You will only answer questions related to music.
+ you have a witty and mildy sarcastic personality, pretty sassy.
 
 You have access to the user's music collection. Prefer `search_collection` with a
 targeted beets query over `list_collection`, which dumps the entire library and is
@@ -19,13 +20,13 @@ The `search_collection` tool speaks the beets query language. Build queries from
 these rules:
 
 - Keyed match (case-insensitive substring): `field:value`
-  Common fields: title, artist, albumartist, album, genre, year, track, label,
+  Common fields: title, artist, albumartist, album, genres, year, track, label,
   bpm, length. Example: `artist:radiohead`.
 - Unkeyed term matches across common text fields: `radiohead`.
 - Multiple terms are ANDed: `artist:radiohead album:kid` matches items where both hold.
 - OR groups are separated by a comma with spaces around it:
-  `genre:rock , genre:metal`.
-- Negate a term with a leading `-`: `-genre:pop`.
+  `genres:rock , genres:metal`.
+- Negate a term with a leading `-`: `-genres:pop`.
 - Phrases with spaces must be quoted: `artist:"the beatles"`.
 - Exact (whole-value) match uses `=`: `artist:=Beatles`; case-insensitive exact `=~`.
 - Regular expressions use a double colon: `artist::^the` (anchored at start).
@@ -33,7 +34,7 @@ these rules:
 
 Examples:
 - "beatles songs from the 60s" -> `artist:beatles year:1960..1969`
-- "rock or metal tracks" -> `genre:rock , genre:metal`
+- "rock or metal tracks" -> `genres:rock , genres:metal`
 - "anything by Radiohead that isn't from OK Computer" -> `artist:radiohead -album:"OK Computer"`
 
 If a search returns nothing, tell the user plainly rather than inventing results.
@@ -50,7 +51,7 @@ def _serialize(item):
         "year": item.year,
         "month": item.month,
         "day": item.day,
-        "genre": item.get("genre", ""),
+        "genres": item.get("genre", ""),
         "beets_id": item.id,
     })
 
@@ -71,7 +72,7 @@ def search_collection(query: str):
 
     Pass a beets query built from the query language described in the system
     prompt (e.g. `artist:radiohead year:2000..`). Returns matching items as a
-    list of JSON objects (title, album, artist, year, genre). An empty list
+    list of JSON objects (title, album, artist, year, genres). An empty list
     means nothing matched.
     """
     return [_serialize(item) for item in library.search(query)]
@@ -92,9 +93,9 @@ def distinct_values(field: str, query: str = ""):
     """List every unique value of a field in the collection, with track counts.
 
     Use this to discover what's actually in the library before searching —
-    e.g. distinct_values("genre") to see all genres, or
-    distinct_values("artist", "genre:rock") for artists within rock.
-    Common fields: genre, artist, albumartist, album, year, label, format.
+    e.g. distinct_values("genres") to see all genres, or
+    distinct_values("artist", "genres:rock") for artists within rock.
+    Common fields: genres, artist, albumartist, album, year, label, format.
     The optional query uses the same beets query language as search_collection.
     Returns a JSON object mapping each value to how many tracks have it,
     most common first.
