@@ -36,17 +36,7 @@ uv sync
 The chat assistant talks to an LLM through OpenRouter and needs an API key.
 Everything else in Tuney works without one.
 
-```bash
-cp .env.example .env
-# then edit .env and set:
-# OPENROUTER_API_KEY=sk-or-...
-```
-
-You can also paste the key into **Settings** inside the TUI, which stores it
-in your system keychain — no `.env` needed. Tuney checks the
-`OPENROUTER_API_KEY` environment variable (or `.env`) first, then the
-keychain. The chat model defaults to `moonshotai/kimi-k2.5` and can be changed
-to any OpenRouter model id from the Settings screen.
+You can also set the key with the **Settings** inside the TUI. T
 
 ## How to Use
 
@@ -79,7 +69,7 @@ terminal is themed.
 | `Escape`  | Back to the previous screen |
 | `q`       | Quit                        |
 
-#### Chatting with your library
+#### Chat with Tuney
 
 Selecting **Chat** opens Tuney's AI assistant. Ask questions in plain English —
 it answers using live queries against your library, for example:
@@ -92,50 +82,11 @@ it answers using live queries against your library, for example:
   that isn't mounted right now, it tells you the path it was imported from and
   that the file can't be accessed until the drive is reconnected)
 
-While the model works, its reasoning streams live into the reply box under
-_Thinking..._ so you can see what it's doing; the trace is replaced by the
-answer as soon as it starts. If the AI service stalls or errors, the failure
-is shown in the reply instead of hanging.
-
-There are two views, and Tuney remembers which one you last used:
-
-- **Focus** (default) — the mascot plus the latest question and answer.
-- **History** — the full scrolling conversation.
-
-| Key      | Action                                    |
-| -------- | ----------------------------------------- |
-| `Enter`  | Send the message in the input box         |
-| `Ctrl+S` | Swap between focus and history views      |
-| `Ctrl+C` | Copy selected text (click-drag to select) |
-| `Esc`    | Back to menu                              |
-
 #### Scanning from the TUI
 
 Selecting **Scan Directory** opens a file browser starting in your current working
 directory. Navigate to the folder you want to import, then scan it — progress streams
 live as files are added to the library.
-
-| Key           | Action                                |
-| ------------- | ------------------------------------- |
-| `↑` / `↓`     | Move through the list                 |
-| `→` / `Enter` | Open the highlighted folder           |
-| `←`           | Go up to the parent (or select `../`) |
-| `Shift+S`     | Scan the current directory            |
-| `Esc`         | Close                                 |
-
-#### Settings
-
-Selecting **Settings** opens a small configuration panel:
-
-- **OpenRouter API key** — shows where the active key comes from, and lets you
-  save a new key to your system keychain or remove the stored one. A key set
-  via the `OPENROUTER_API_KEY` environment variable always takes precedence
-  over the keychain; the panel tells you when that's the case.
-- **Chat model** — set any OpenRouter model id (default
-  `moonshotai/kimi-k2.5`), or reset to the default. Takes effect the next time
-  the chat agent starts, so restart Tuney if you've already chatted.
-- **About** — where the library database and settings file live, and how many
-  tracks are indexed.
 
 ### Scan a music directory (CLI)
 
