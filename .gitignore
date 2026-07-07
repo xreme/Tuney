@@ -4,3 +4,4 @@ __pycache__/
 /music/copyrighted
 .DS_Store
 src/tuney/tools.py
+src/tuney/agents/AGENT_ADDITIONS.md
