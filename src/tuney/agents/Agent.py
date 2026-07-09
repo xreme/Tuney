@@ -31,9 +31,6 @@ class Agent:
         tools: Sequence[BaseTool] = (),
         thread_id: str | None = None,
     ):
-        # A callable model or system_prompt is evaluated when the agent is
-        # first used, so both can come from values that must be fresh
-        # (e.g. the date, or a setting changed since import).
         self._model = model
         self._system_prompt = system_prompt
         self._tools = list(tools)

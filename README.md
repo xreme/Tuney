@@ -1,20 +1,8 @@
 # Tuney
 
-Your local music library assistant — scan, index, search, and chat with your music collection from the terminal.
+Your local music library assistant — scan, index, search, and chat with Tuney to maintain your collection, get reccomendations, or learn about your favourite artists.
 
-## Technologies
-
-| Function                                | Library                                                                                                    |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Local music library management          | [Beets](https://beets.io/)                                                                                 |
-| CLI parsing / processing                | [Typer](https://typer.tiangolo.com/)                                                                       |
-| Platform-dependent directory management | [platformdirs](https://github.com/platformdirs/platformdirs)                                               |
-| TUI rendering                           | [Textual](https://textual.textualize.io/)                                                                  |
-| AI agent framework                      | [LangChain](https://python.langchain.com/) / LangGraph                                                     |
-| LLM access                              | [OpenRouter](https://openrouter.ai/)                                                                       |
-| API key storage                         | [keyring](https://github.com/jaraco/keyring) + [python-dotenv](https://github.com/theskumar/python-dotenv) |
-
-Requires **Python 3.13+**.
+#
 
 ## Installation
 
@@ -71,8 +59,8 @@ terminal is themed.
 
 #### Chat with Tuney
 
-Selecting **Chat** opens Tuney's AI assistant. Ask questions in plain English —
-it answers using live queries against your library, for example:
+Selecting **Chat** opens Tuney's chat system. Ask questions to Tuney and
+it answers based on information in your library and external sources, for example:
 
 - "How many Beatles songs do I have?"
 - "What genres are in my library?" / "Tell me about my collection"
@@ -81,6 +69,16 @@ it answers using live queries against your library, for example:
 - "Where on disk is the file for that track?" (if the track lives on a drive
   that isn't mounted right now, it tells you the path it was imported from and
   that the file can't be accessed until the drive is reconnected)
+
+While the model works, its reasoning streams live into the reply box under
+_Thinking..._ so you can see what it's doing; the trace is replaced by the
+answer as soon as it starts. If the AI service stalls or errors, the failure
+is shown in the reply instead of hanging.
+
+There are two views, and Tuney remembers which one you last used:
+
+- **Focus** (default) — the mascot plus the latest question and answer.
+- **History** — the full scrolling conversation.
 
 #### Scanning from the TUI
 
@@ -132,3 +130,17 @@ the path of every copy:
 ```bash
 uv run tuney duplicates
 ```
+
+# Technologies
+
+| Function                                | Library                                                                                                    |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Local music library management          | [Beets](https://beets.io/)                                                                                 |
+| CLI parsing / processing                | [Typer](https://typer.tiangolo.com/)                                                                       |
+| Platform-dependent directory management | [platformdirs](https://github.com/platformdirs/platformdirs)                                               |
+| TUI rendering                           | [Textual](https://textual.textualize.io/)                                                                  |
+| AI agent framework                      | [LangChain](https://python.langchain.com/) / LangGraph                                                     |
+| LLM access                              | [OpenRouter](https://openrouter.ai/)                                                                       |
+| API key storage                         | [keyring](https://github.com/jaraco/keyring) + [python-dotenv](https://github.com/theskumar/python-dotenv) |
+
+Requires **Python 3.13+**.
