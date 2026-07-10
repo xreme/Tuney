@@ -1,10 +1,11 @@
+from langchain.tools import tool
+from tuney import config, library
+from tuney.agents.Agent import Agent
 import json
 from collections import Counter
 from datetime import datetime
 from os import fsdecode
-from langchain.tools import tool
-from tuney import config, library
-from tuney.agents.Agent import Agent
+from pathlib import Path
 
 
 SYSTEM_PROMPT = """
@@ -76,6 +77,20 @@ def _serialize(item):
         "genres": item.get("genre", ""),
         "beets_id": item.id,
     })
+
+@tool
+def scan_directory(dir: str):
+    """Scan a directory to import its music into the user's collection.
+
+    Pass an absolute path. Runs a beets import of everything under that
+    directory and updates the user's library DB. This is a long-running
+    operation — on a large directory it may take a very long time.
+    Returns the tail of the import log so you can tell the user what happened.
+    """
+    if not dir.is_dir():
+        return "This path is not a directory on this disk"
+
+    library.scan(dir)
 
 
 @tool
@@ -236,7 +251,8 @@ def locate_file(itemId: int):
 
 TOOLS = [list_collection, search_collection,
          item_information, count_items, distinct_values,
-           collection_stats, find_duplicates, locate_file]
+           collection_stats, find_duplicates, locate_file,
+           scan_directory]
 
 
 def _dated_prompt() -> str:
