@@ -185,3 +185,10 @@ def scan_directory(dir: str):
         return "This path is not a directory on this disk"
 
     library.scan(dir)
+
+@tool
+def remove_item(item_id, delete_item=False):
+    """
+    Delete an item from the user's collection
+    """
+    None
