@@ -85,3 +85,14 @@ def duplicates():
         item = lib.get_item(int(line.split(":")[0]))
         groups.setdefault((item.artist, item.title), []).append(item)
     return list(groups.values())
+
+def remove_item(item, delete=False, with_album=False):
+    """Remove item from user's library, optional variable to also delete the file from disk"""
+    item.remove(delete=delete,with_album=with_album) 
+
+
+def remove_album():
+    pass
+
+def move_item():
+    pass

@@ -25,7 +25,14 @@ def search(query: str):
     """Search your library"""
     results = library.search(query)
     for item in results:
-        typer.echo(f"{item.title} ({item.album})")
+        typer.echo(f"{item.id} | {item.title} ({item.album})")
+
+@app.command()
+def locate(query:str):
+    """Search library for the path of item"""
+    results = library.search(query)
+    for item in results:
+        typer.echo(f"{item.id} | {item.title} ({item.path})")
 
 @app.command()
 def collection():
@@ -44,3 +51,10 @@ def duplicates():
         typer.echo(f"{group[0].artist} - {group[0].title}")
         for item in group:
             typer.echo(f"  {item.filepath}")
+
+@app.command()
+def remove(id):
+    """Remove item based on item id"""
+    item = library.get_item(id)
+
+    library.remove_item(item, delete=True)
