@@ -159,8 +159,9 @@ def find_duplicates():
       ("all 18 tracks of X also appear on Y") instead of listing every track,
       and do not call these duplicates.
     - Only recommend which copy to remove if the user explicitly asks; base
-      that on format and bitrate (keep the highest quality), and never imply
-      you can delete anything yourself — you can't.
+      that on format and bitrate (keep the highest quality). Removal itself
+      goes through `remove_item`, which requires explicit per-track user
+      confirmation first.
     """
     groups = library.duplicates()
     return json.dumps([
@@ -187,8 +188,31 @@ def scan_directory(dir: str):
     library.scan(dir)
 
 @tool
-def remove_item(item_id, delete_item=False):
+def remove_item(item_id: int, delete_file: bool = False):
+    """Remove a track from the user's library, looked up by beets_id.
+
+    With delete_file=False (the default) only the library DB entry is removed;
+    the audio file stays on disk. With delete_file=True the audio file is
+    PERMANENTLY deleted from disk as well — this cannot be undone.
+
+    This tool acts immediately, with no confirmation step of its own. Before
+    calling it you MUST:
+    - Have the user's explicit go-ahead for this specific track in this
+      conversation. Never remove anything speculatively or as part of a batch
+      the user hasn't seen.
+    - Confirm the target: call `item_information` with the beets_id and echo
+      the title/artist/album back to the user, so a wrong or stale id can't
+      delete the wrong file.
+    - Only pass delete_file=True if the user clearly wants the file itself
+      gone (e.g. deleting a duplicate copy), not just removed from the
+      library.
+
+    Returns a message confirming what was removed, or an error if the id
+    doesn't exist.
     """
-    Delete an item from the user's collection
-    """
-    None
+    item = library.get_item(item_id)
+    if item is None:
+        return f"No item found with id: {item_id}"
+    library.remove_item(item, delete=delete_file)
+    what = "library entry and audio file" if delete_file else "library entry (file kept on disk)"
+    return f"Removed {what}: {item.artist} - {item.title} ({item.album})"
