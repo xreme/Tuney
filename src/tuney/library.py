@@ -88,6 +88,11 @@ def duplicates():
 
 def remove_item(item, delete=False, with_album=False):
     """Remove item from user's library, optional variable to also delete the file from disk"""
+    if delete:
+        path = os.fsdecode(item.path)
+        volume = _volume_root(path)
+        if volume is not None and not volume.exists():
+            raise DriveNotMounted(path)
     item.remove(delete=delete,with_album=with_album) 
 
 
