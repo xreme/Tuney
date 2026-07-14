@@ -53,8 +53,15 @@ def duplicates():
             typer.echo(f"  {item.filepath}")
 
 @app.command()
-def remove(id):
+def remove(id: int,
+          delete: bool = typer.Option(
+              False, "--delete", "-d",
+              help="Also delete the audio file from disk, not just the library"
+          ) 
+           ):
     """Remove item based on item id"""
     item = library.get_item(id)
-
-    library.remove_item(item, delete=True)
+    if item is None:
+        typer.echo(f"No item found with id {id}")
+        raise typer.Exit(code=1)
+    library.remove_item(item, delete=delete)
