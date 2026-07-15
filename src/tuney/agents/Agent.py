@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable, Sequence
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain.tools import BaseTool
 from langchain_core.messages import AIMessageChunk
 from langchain_openrouter import ChatOpenRouter
@@ -29,11 +30,13 @@ class Agent:
         model: str | Callable[[], str],
         system_prompt: str | Callable[[], str],
         tools: Sequence[BaseTool] = (),
+        middleware: Sequence = (),
         thread_id: str | None = None,
     ):
         self._model = model
         self._system_prompt = system_prompt
         self._tools = list(tools)
+        self_middleware = list(middleware)
         self._thread_id = thread_id or str(uuid.uuid4())
         self._agent = None
 
