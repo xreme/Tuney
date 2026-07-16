@@ -57,27 +57,43 @@ class ConfirmModal(ModalScreen[bool]):
     TITLE_STYLE = "bold cyan"
     ALBUM_STYLE = "italic magenta"
     PATH_STYLE = "yellow"
+    MAX_LISTED_TRACKS = 8
 
     def _describe(self) -> Text | None:
         """Human-friendly text for known tools; None falls back to the raw view."""
-        if self._request.get("name") != "remove_item":
-            return None
+        name = self._request.get("name")
         args = self._request.get("args", {})
-        title = f"item {args.get('item_id')}"
-        artist = album = path = None
-        try:
-            item = library.get_item(args.get("item_id"))
-        except Exception:
-            item = None
-        if item is not None:
-            fields = dict(item)
-            title = str(fields.get("title") or title)
-            artist = str(fields.get("artist") or "") or None
-            album = str(fields.get("album") or "") or None
-            if item.path:
-                path = os.fsdecode(item.path)
+        if name == "remove_item":
+            return self._describe_item(args.get("item_id"), bool(args.get("delete_file")))
+        if name == "remove_items":
+            return self._describe_batch(list(args.get("item_ids") or []),
+                                        bool(args.get("delete_files")))
+        if name == "remove_album":
+            return self._describe_album(args.get("album_id"), bool(args.get("delete_files")))
+        return None
 
-        delete = bool(args.get("delete_file"))
+    @staticmethod
+    def _lookup_item(item_id):
+        try:
+            return library.get_item(item_id)
+        except Exception:
+            return None
+
+    def _item_fields(self, item_id) -> tuple[str, str | None, str | None, str | None]:
+        """(title, artist, album, path) for an id, with fallbacks for bad ids."""
+        item = self._lookup_item(item_id)
+        if item is None:
+            return f"item {item_id}", None, None, None
+        fields = dict(item)
+        return (
+            str(fields.get("title") or f"item {item_id}"),
+            str(fields.get("artist") or "") or None,
+            str(fields.get("album") or "") or None,
+            os.fsdecode(item.path) if item.path else None,
+        )
+
+    def _describe_item(self, item_id, delete: bool) -> Text:
+        title, artist, album, path = self._item_fields(item_id)
         text = Text()
         text.append("Tuney would like to permanently delete " if delete
                     else "Tuney would like to remove ")
@@ -96,6 +112,57 @@ class ConfirmModal(ModalScreen[bool]):
             text.append("The audio file will be deleted from disk — this cannot be undone.")
         else:
             text.append(" from your library.\n\nThe audio file will stay on disk.")
+        return text
+
+    def _describe_batch(self, item_ids: list, delete: bool) -> Text:
+        count = len(item_ids)
+        tracks_word = "track" if count == 1 else "tracks"
+        text = Text()
+        text.append(f"Tuney would like to permanently delete these {count} {tracks_word}:\n\n"
+                    if delete else
+                    f"Tuney would like to remove these {count} {tracks_word} from your library:\n\n")
+        for item_id in item_ids[: self.MAX_LISTED_TRACKS]:
+            title, artist, _album, path = self._item_fields(item_id)
+            text.append("  • ")
+            text.append(title, style=self.TITLE_STYLE)
+            if artist:
+                text.append(f" by {artist}")
+            if delete and path:
+                text.append("\n    ")
+                text.append(path, style=self.PATH_STYLE)
+            text.append("\n")
+        if count > self.MAX_LISTED_TRACKS:
+            text.append(f"  …and {count - self.MAX_LISTED_TRACKS} more\n")
+        text.append("\nThe audio files will be deleted from disk — this cannot be undone."
+                    if delete else
+                    "\nThe audio files will stay on disk.")
+        return text
+
+    def _describe_album(self, album_id, delete: bool) -> Text:
+        try:
+            album = library.get_album(album_id)
+        except Exception:
+            album = None
+        name = f"album {album_id}"
+        artist = tracks = None
+        if album is not None:
+            name = str(album.album or name)
+            artist = str(album.albumartist or "") or None
+            tracks = len(list(album.items()))
+        text = Text()
+        text.append("Tuney would like to permanently delete the album "
+                    if delete else "Tuney would like to remove the album ")
+        text.append(name, style=self.ALBUM_STYLE)
+        if artist:
+            text.append(f" by {artist}")
+        if tracks is not None:
+            text.append(f" — all {tracks} tracks" if tracks != 1 else " — 1 track")
+        if delete:
+            text.append(".\n\n"
+                        "The audio files and album art will be deleted from disk "
+                        "— this cannot be undone.")
+        else:
+            text.append(" — from your library.\n\nThe audio files will stay on disk.")
         return text
 
     def compose(self) -> ComposeResult:
