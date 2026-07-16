@@ -220,3 +220,69 @@ def remove_item(item_id: int, delete_file: bool = False):
     library.remove_item(item, delete=delete_file)
     what = "library entry and audio file" if delete_file else "library entry (file kept on disk)"
     return f"Removed {what}: {item.artist} - {item.title} ({item.album})"
+
+@tool
+def remove_items(item_ids: list[int], delete_files: bool = False):
+    """Remove several tracks from the user's library at once, looked up by beets_id.
+
+    Same semantics as `remove_item`, applied to every id: with
+    delete_files=False (the default) only the library DB entries are removed;
+    with delete_files=True the audio files are PERMANENTLY deleted from disk
+    as well — this cannot be undone.
+
+    Prefer this over many single `remove_item` calls when the user wants
+    several tracks gone (e.g. clearing duplicate copies): the user gets ONE
+    confirmation dialog listing every track, and approves or rejects the
+    batch as a whole. Do NOT ask for permission in chat first — the dialog is
+    the confirmation. Verify each id refers to the track the user means
+    before calling.
+
+    Returns a per-track summary of what was removed and any ids that failed.
+    """
+    removed: list[str] = []
+    errors: list[str] = []
+    for item_id in item_ids:
+        item = library.get_item(item_id)
+        if item is None:
+            errors.append(f"{item_id}: no item with this id")
+            continue
+        try:
+            library.remove_item(item, delete=delete_files)
+        except library.DriveNotMounted as e:
+            errors.append(f"{item_id}: drive not mounted ({e}) — not removed")
+            continue
+        removed.append(f"{item.artist} - {item.title} ({item.album})")
+    what = "library entry and audio file" if delete_files else "library entry (file kept on disk)"
+    lines = [f"Removed {what} for {len(removed)} of {len(item_ids)} tracks:"]
+    lines += [f"  {r}" for r in removed]
+    if errors:
+        lines.append("Failed:")
+        lines += [f"  {e}" for e in errors]
+    return "\n".join(lines)
+
+@tool
+def remove_album(album_id: int, delete_files: bool = False):
+    """Remove an entire album — every one of its tracks — from the user's
+    library, looked up by the beets album id.
+
+    Find the album id via `item_information` on any track of the album (its
+    `album_id` field). With delete_files=False (the default) only the library
+    DB entries are removed; with delete_files=True the audio files AND the
+    album art are PERMANENTLY deleted from disk — this cannot be undone.
+
+    The user gets one confirmation dialog for the whole album before anything
+    is removed. Do NOT ask for permission in chat first — the dialog is the
+    confirmation.
+
+    Returns a message confirming what was removed, or an error if the id
+    doesn't exist.
+    """
+    album = library.get_album(album_id)
+    if album is None:
+        return f"No album found with album_id: {album_id}"
+    track_count = len(list(album.items()))
+    library.remove_album(album, delete=delete_files)
+    what = ("library entries, audio files and album art" if delete_files
+            else "library entries (files kept on disk)")
+    return (f"Removed {what} for album: {album.albumartist} - {album.album} "
+            f"({track_count} tracks)")
