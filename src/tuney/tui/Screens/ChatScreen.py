@@ -5,13 +5,16 @@ from textual.app import ComposeResult
 from textual.widgets import Input, Header, Footer, Static, Button, Markdown
 from textual.containers import VerticalScroll, Horizontal, Vertical
 from tuney import config
+from tuney.tui.Modals import ConfirmModal
 from textual import work
 
 
 MASCOT = r"""
- ┌────────┐
- │  O  O  │
- │   ◡    │
+   ┌────────┐
+   │  O  O  │
+   │   ◡    │
+   │        │
+ (_)      (_)
 """
 
 
@@ -124,6 +127,7 @@ class ChatScreen(Screen):
     @work(exclusive = True)
     async def _run_query(self, text: str):
         from tuney.agents.collectionSearchAgent import collection_search_agent
+        from tuney.agents.collectionCleanupAgent import collection_cleanup_agent
 
         reply = self.query_one("#ai-reply", Markdown)
         scroll = self.query_one("#ai-reply-scroll")
@@ -147,8 +151,14 @@ class ChatScreen(Screen):
             quoted = "\n".join(f"> {line}" for line in tail.splitlines())
             await reply.update(f"Thinking...\n\n{quoted}")
 
-        try:
-            async for kind, token in collection_search_agent.astream(text):
+        async def _render(events) -> list | None:
+            """Render one agent stream; return the interrupt requests if the
+            run paused for tool confirmation, else None when it finished."""
+            requests = None
+            async for kind, token in events:
+                if kind == "interrupt":
+                    requests = token        # stream ends right after; dialog comes then
+                    continue
                 if kind == "reasoning":
                     if stream is None:      # answer hasn't started yet
                         thinking.append(token)
@@ -157,6 +167,21 @@ class ChatScreen(Screen):
                 parts.append(token)
                 await (await _stream()).write(token)
                 scroll.scroll_end(animate=False)    # follow the incoming text
+            return requests
+
+        try:
+            pending = await _render(collection_cleanup_agent.astream(text))
+            while pending:
+                # One decision per interrupted tool call, in the same order.
+                decisions = []
+                for request in pending:
+                    approved = await self.app.push_screen_wait(ConfirmModal(request))
+                    decisions.append(
+                        {"type": "approve"} if approved
+                        else {"type": "reject",
+                              "message": "The user declined this action."}
+                    )
+                pending = await _render(collection_cleanup_agent.aresume(decisions))
         except asyncio.CancelledError:
             # Worker cancelled (new query submitted, screen closed). Keep any
             # partial reply in history instead of losing it silently; no
