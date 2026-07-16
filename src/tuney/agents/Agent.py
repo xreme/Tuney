@@ -3,7 +3,6 @@ import uuid
 from collections.abc import Callable, Sequence
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain.tools import BaseTool
 from langchain_core.messages import AIMessageChunk
 from langchain_openrouter import ChatOpenRouter
@@ -36,7 +35,7 @@ class Agent:
         self._model = model
         self._system_prompt = system_prompt
         self._tools = list(tools)
-        self_middleware = list(middleware)
+        self._middleware = list(middleware)
         self._thread_id = thread_id or str(uuid.uuid4())
         self._agent = None
 
@@ -64,6 +63,7 @@ class Agent:
             ),
             tools=self._tools,
             system_prompt=prompt,
+            middleware=self._middleware,
             checkpointer=InMemorySaver(),
         )
         return self._agent
@@ -83,15 +83,29 @@ class Agent:
         return result["messages"][-1].content_blocks[-1]["text"]
 
     async def astream(self, message: str):
-        """Yield ("reasoning" | "text", token) pairs as the assistant responds. """
-        stream = aiter(self._get_agent().astream(
-            self._payload(message),
+        """Yield ("reasoning" | "text" | "interrupt", token) pairs as the assistant responds. """
+        async for event in self._consume(self._get_agent().astream(
+                self._payload(message),
+                config=self._config(),
+                stream_mode=["messages", "updates"],
+        )):
+            yield event
+
+    async def aresume(self, decisions: list[dict]):
+        """Resume a paused run with the user's decisions, streaming the rest."""
+        from langgraph.types import Command
+        async for event in self._consume(self._get_agent().astream(
+            Command(resume={"decisions": decisions}),
             config=self._config(),
-            stream_mode="messages",
-        ))
+            stream_mode=["messages", "updates"],
+        )):
+            yield event
+
+    async def _consume(self, raw_stream):
+        stream = aiter(raw_stream)
         while True:
             try:
-                chunk, _meta = await asyncio.wait_for(
+                mode, data = await asyncio.wait_for(
                     anext(stream), timeout=_STREAM_INACTIVITY_TIMEOUT
                 )
             except StopAsyncIteration:
@@ -102,6 +116,16 @@ class Agent:
                     f"(no data for {_STREAM_INACTIVITY_TIMEOUT:.0f}s). "
                     "Check your connection and try again."
                 ) from None
+            
+            if mode == "updates":
+                if "__interrupt__" in data:
+                    # The HITL interrupt value is a HITLRequest dict; surface
+                    # just the action requests: [{"name", "args", "description"}]
+                    yield "interrupt", data["__interrupt__"][0].value["action_requests"]
+                continue
+        
+            chunk, _meta = data
+
             if isinstance(chunk, AIMessageChunk):
                 for block in chunk.content_blocks:
                     if block.get("type") == "text" and block.get("text"):
