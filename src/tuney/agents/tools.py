@@ -115,6 +115,11 @@ def item_information(itemId: int):
         for k, v in dict(item).items()
     }
 
+    size = item.try_filesize()
+    item_json["file_size_bytes"] = size
+    # 0 means the file is missing or its drive isn't mounted.
+    item_json["file_size"] = f"{size / 1_048_576:.1f} MB" if size else "unavailable"
+
     return json.dumps(item_json)
 
 @tool
@@ -195,17 +200,16 @@ def remove_item(item_id: int, delete_file: bool = False):
     the audio file stays on disk. With delete_file=True the audio file is
     PERMANENTLY deleted from disk as well — this cannot be undone.
 
-    This tool acts immediately, with no confirmation step of its own. Before
-    calling it you MUST:
-    - Have the user's explicit go-ahead for this specific track in this
-      conversation. Never remove anything speculatively or as part of a batch
-      the user hasn't seen.
-    - Confirm the target: call `item_information` with the beets_id and echo
-      the title/artist/album back to the user, so a wrong or stale id can't
-      delete the wrong file.
-    - Only pass delete_file=True if the user clearly wants the file itself
-      gone (e.g. deleting a duplicate copy), not just removed from the
-      library.
+    Calling this tool automatically presents the user with a confirmation
+    dialog showing the track and its file path; nothing is removed until they
+    approve. Do NOT ask for permission in chat before calling it — the dialog
+    is the confirmation. Just make sure of:
+    - The right target: use `item_information`/`search_collection` to verify
+      the beets_id refers to the track the user means, so a wrong or stale id
+      can't surface the wrong file for deletion.
+    - The right mode: only pass delete_file=True if the user clearly wants
+      the file itself gone (e.g. deleting a duplicate copy), not just removed
+      from the library.
 
     Returns a message confirming what was removed, or an error if the id
     doesn't exist.
