@@ -42,6 +42,10 @@ def get_item(item_id: int):
     lib = Library(DB)
     return lib.get_item(item_id)
 
+def get_album(album_id: int):
+    lib = Library(DB)
+    return lib.get_album(album_id)
+
 class DriveNotMounted(FileNotFoundError):
     """The volume holding the file isn't mounted right now."""
 
@@ -96,8 +100,16 @@ def remove_item(item, delete=False, with_album=False):
     item.remove(delete=delete,with_album=with_album) 
 
 
-def remove_album():
-    pass
+def remove_album(album, delete=False):
+    """Remove an album and all its tracks from the library, optionally
+    deleting the audio files (and album art) from disk."""
+    if delete:
+        for item in album.items():
+            path = os.fsdecode(item.path)
+            volume = _volume_root(path)
+            if volume is not None and not volume.exists():
+                raise DriveNotMounted(path)
+    album.remove(delete=delete, with_items=True)
 
 def move_item():
     pass
