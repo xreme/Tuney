@@ -38,15 +38,12 @@ class Agent:
         self._middleware = list(middleware)
         self._thread_id = thread_id or str(uuid.uuid4())
         self._agent = None
+        self._agent_key = None
+        # Owned by the instance (not the built graph) so the conversation
+        # survives rebuilds when the prompt or model changes mid-session.
+        self._checkpointer = InMemorySaver()
 
     def _get_agent(self):
-        if self._agent is not None:
-            return self._agent
-
-        key = get_api_key()
-        if not key:
-            raise RuntimeError("No API key provided")
-
         prompt = self._system_prompt
         if callable(prompt):
             prompt = prompt()
@@ -54,6 +51,13 @@ class Agent:
         model = self._model
         if callable(model):
             model = model()
+
+        if self._agent is not None and self._agent_key == (model, prompt):
+            return self._agent
+
+        key = get_api_key()
+        if not key:
+            raise RuntimeError("No API key provided")
 
         self._agent = create_agent(
             model=ChatOpenRouter(
@@ -64,8 +68,9 @@ class Agent:
             tools=self._tools,
             system_prompt=prompt,
             middleware=self._middleware,
-            checkpointer=InMemorySaver(),
+            checkpointer=self._checkpointer,
         )
+        self._agent_key = (model, prompt)
         return self._agent
 
     def _payload(self, message: str) -> dict:

@@ -3,6 +3,7 @@ from tuney import library
 import json
 from collections import Counter
 from os import fsdecode
+from os.path import getsize
 
 
 def _serialize(item):
@@ -115,7 +116,12 @@ def item_information(itemId: int):
         for k, v in dict(item).items()
     }
 
-    size = item.try_filesize()
+    # Not item.try_filesize(): beets logs a warning for every missing file,
+    # which lands on stderr and bleeds through the TUI.
+    try:
+        size = getsize(fsdecode(item.path))
+    except OSError:
+        size = 0
     item_json["file_size_bytes"] = size
     # 0 means the file is missing or its drive isn't mounted.
     item_json["file_size"] = f"{size / 1_048_576:.1f} MB" if size else "unavailable"

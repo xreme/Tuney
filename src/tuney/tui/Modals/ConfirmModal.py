@@ -3,7 +3,7 @@ import os
 from textual.screen import ModalScreen
 from textual.app import ComposeResult
 from textual.widgets import Button, Label, Static
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, VerticalScroll
 from rich.text import Text
 
 from tuney import library
@@ -32,9 +32,15 @@ class ConfirmModal(ModalScreen[bool]):
         text-style: bold;
         padding-bottom: 1;
     }
+    #confirm-detail-scroll {
+        width: 100%;
+        height: auto;
+        max-height: 60vh;
+        margin-bottom: 1;
+    }
     #confirm-detail {
         width: 100%;
-        padding-bottom: 1;
+        height: auto;
     }
     #confirm-buttons {
         width: 100%;
@@ -48,6 +54,10 @@ class ConfirmModal(ModalScreen[bool]):
         ("escape", "reject", "Reject"),
         ("y", "approve", "Approve"),
         ("n", "reject", "Reject"),
+        ("up", "scroll_detail(-1)", "Scroll up"),
+        ("down", "scroll_detail(1)", "Scroll down"),
+        ("pageup", "scroll_detail_page(-1)", "Page up"),
+        ("pagedown", "scroll_detail_page(1)", "Page down"),
     ]
 
     def __init__(self, request: dict) -> None:
@@ -57,7 +67,6 @@ class ConfirmModal(ModalScreen[bool]):
     TITLE_STYLE = "bold cyan"
     ALBUM_STYLE = "italic magenta"
     PATH_STYLE = "yellow"
-    MAX_LISTED_TRACKS = 8
 
     def _describe(self) -> Text | None:
         """Human-friendly text for known tools; None falls back to the raw view."""
@@ -121,7 +130,7 @@ class ConfirmModal(ModalScreen[bool]):
         text.append(f"Tuney would like to permanently delete these {count} {tracks_word}:\n\n"
                     if delete else
                     f"Tuney would like to remove these {count} {tracks_word} from your library:\n\n")
-        for item_id in item_ids[: self.MAX_LISTED_TRACKS]:
+        for item_id in item_ids:
             title, artist, _album, path = self._item_fields(item_id)
             text.append("  • ")
             text.append(title, style=self.TITLE_STYLE)
@@ -131,8 +140,6 @@ class ConfirmModal(ModalScreen[bool]):
                 text.append("\n    ")
                 text.append(path, style=self.PATH_STYLE)
             text.append("\n")
-        if count > self.MAX_LISTED_TRACKS:
-            text.append(f"  …and {count - self.MAX_LISTED_TRACKS} more\n")
         text.append("\nThe audio files will be deleted from disk — this cannot be undone."
                     if delete else
                     "\nThe audio files will stay on disk.")
@@ -144,25 +151,36 @@ class ConfirmModal(ModalScreen[bool]):
         except Exception:
             album = None
         name = f"album {album_id}"
-        artist = tracks = None
+        artist = None
+        tracks: list | None = None
         if album is not None:
             name = str(album.album or name)
             artist = str(album.albumartist or "") or None
-            tracks = len(list(album.items()))
+            tracks = list(album.items())
         text = Text()
         text.append("Tuney would like to permanently delete the album "
                     if delete else "Tuney would like to remove the album ")
         text.append(name, style=self.ALBUM_STYLE)
         if artist:
             text.append(f" by {artist}")
+        if not delete:
+            text.append(" — from your library")
         if tracks is not None:
-            text.append(f" — all {tracks} tracks" if tracks != 1 else " — 1 track")
-        if delete:
-            text.append(".\n\n"
-                        "The audio files and album art will be deleted from disk "
-                        "— this cannot be undone.")
+            count = len(tracks)
+            text.append(f" — all {count} tracks:\n\n" if count != 1 else " — 1 track:\n\n")
+            for item in tracks:
+                text.append("  • ")
+                text.append(str(item.title or f"item {item.id}"), style=self.TITLE_STYLE)
+                if delete and item.path:
+                    text.append("\n    ")
+                    text.append(os.fsdecode(item.path), style=self.PATH_STYLE)
+                text.append("\n")
         else:
-            text.append(" — from your library.\n\nThe audio files will stay on disk.")
+            text.append(".\n")
+        text.append("\nThe audio files and album art will be deleted from disk "
+                    "— this cannot be undone."
+                    if delete else
+                    "\nThe audio files will stay on disk.")
         return text
 
     def compose(self) -> ComposeResult:
@@ -173,17 +191,32 @@ class ConfirmModal(ModalScreen[bool]):
                           f"  {self._request.get('name', '?')}({args})")
         with Container(id="confirm-dialog"):
             yield Label("Tuney needs your approval", id="modal-title")
-            yield Static(detail, id="confirm-detail")
+            with VerticalScroll(id="confirm-detail-scroll", can_focus=False):
+                yield Static(detail, id="confirm-detail")
             with Horizontal(id="confirm-buttons"):
                 yield Button("Approve (y)", id="approve", variant="error")
                 yield Button("Reject (n)", id="reject", variant="primary")
-            yield Label(r"\[y] approve | \[n]/\[esc] reject", id="modal-hint")
+            yield Label(r"\[y] approve | \[n]/\[esc] reject | \[↑↓] scroll", id="modal-hint")
 
     def on_mount(self) -> None:
         self.query_one("#reject", Button).focus()   # safe default
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "approve")
+
+    def action_scroll_detail(self, direction: int) -> None:
+        scroll = self.query_one("#confirm-detail-scroll", VerticalScroll)
+        if direction > 0:
+            scroll.scroll_down()
+        else:
+            scroll.scroll_up()
+
+    def action_scroll_detail_page(self, direction: int) -> None:
+        scroll = self.query_one("#confirm-detail-scroll", VerticalScroll)
+        if direction > 0:
+            scroll.scroll_page_down()
+        else:
+            scroll.scroll_page_up()
 
     def action_approve(self) -> None:
         self.dismiss(True)

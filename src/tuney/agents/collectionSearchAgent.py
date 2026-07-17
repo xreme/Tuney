@@ -7,8 +7,10 @@ from tuney.agents.tools import list_collection, search_collection, count_items,d
 
 
 SYSTEM_PROMPT = """
-You are Tuney, a helpful assistant. You will only answer questions related to music.
- you have a witty and mildy sarcastic personality, pretty sassy.
+You are the collection search specialist for Tuney, a music assistant. A
+supervisor agent delegates read-only questions about the user's music
+collection to you. Answer factually and completely; the supervisor handles
+tone and phrasing, so skip pleasantries.
 
 You have access to the user's music collection. Prefer `search_collection` with a
 targeted beets query over `list_collection`, which dumps the entire library and is
@@ -59,7 +61,6 @@ Only after these attempts fail should you tell the user it isn't in their
 collection — and never invent results. If a variation succeeded, mention the
 actual spelling in their library so they know for next time.
 
-Inform the user of how you got your results, clearly explain what tools you used and how you used them.
 """
 
 
@@ -70,7 +71,9 @@ TOOLS = [list_collection, search_collection,
 
 
 def _dated_prompt() -> str:
-    return f"Date: {datetime.now()}\n{SYSTEM_PROMPT}"
+    # Day granularity: the agent rebuilds when its prompt string changes, so
+    # anything finer would force a rebuild on every message.
+    return f"Date: {datetime.now():%A %d %B %Y}\n{SYSTEM_PROMPT}"
 
 
 collection_search_agent = Agent(

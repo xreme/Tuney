@@ -1,7 +1,7 @@
 from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Input, Header, Footer, Static, Button
+from textual.widgets import Input, Header, Footer, Static, Button, RadioButton, RadioSet
 from tuney import config, credentials, library
 
 
@@ -31,8 +31,7 @@ class SettingScreen(Screen):
 
             yield Static("Chat model", classes="section")
             yield Static(
-                "Any OpenRouter model id. Takes effect the next time the "
-                "chat agent starts (restart Tuney if you've already chatted).",
+                "Any OpenRouter model id. Takes effect on your next message.",
                 classes="hint",
             )
             yield Input(placeholder=config.DEFAULT_CHAT_MODEL, id="model-input")
@@ -40,12 +39,26 @@ class SettingScreen(Screen):
                 yield Button("Save model", id="model-save", variant="primary")
                 yield Button("Reset to default", id="model-reset")
 
+            yield Static("Chat detail", classes="section")
+            yield Static(
+                "How much information Tuney packs into replies. Also "
+                "switchable from the chat screen (^d). Takes effect on your "
+                "next message.",
+                classes="hint",
+            )
+            with RadioSet(id="detail-set"):
+                yield RadioButton("Low — essentials only", id="detail-low")
+                yield RadioButton("Normal — essentials plus a little extra", id="detail-normal")
+                yield RadioButton("High — lots of information, more verbose", id="detail-high")
+
             yield Static("About", classes="section")
             yield Static(id="about", classes="hint")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#model-input", Input).value = config.get_config().chat_model
+        cfg = config.get_config()
+        self.query_one("#model-input", Input).value = cfg.chat_model
+        self.query_one(f"#detail-{cfg.chat_detail}", RadioButton).value = True
         self._refresh_key_status()
         self.query_one("#about", Static).update(
             f"Library database: {library.DB}\n"
@@ -70,6 +83,15 @@ class SettingScreen(Screen):
         self.query_one("#key-status", Static).update(status)
 
     # ---- actions -----------------------------------------------------------
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        detail = config.ChatDetail(event.pressed.id.removeprefix("detail-"))
+        cfg = config.get_config()
+        if cfg.chat_detail == detail:    # on_mount preselection, not a change
+            return
+        cfg.chat_detail = detail
+        cfg.save()
+        self.notify(f"Chat detail set to {detail}.")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "key-save":
