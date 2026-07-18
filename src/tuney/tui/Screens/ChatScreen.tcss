@@ -94,6 +94,14 @@
     min-width: 5;
 }
 
+/* ---- Stopwatch (visible while an agent run is in flight) ---- */
+#stopwatch {
+    height: 1;
+    padding: 0 2;
+    text-align: left;
+    color: $text-muted;
+}
+
 .hidden {
     display: none;
 }

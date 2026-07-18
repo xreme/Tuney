@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 src/tuney/tools.py
 src/tuney/agents/AGENT_ADDITIONS.md
+src/tuney/agents/CLEANUP_AGENT.md

@@ -13,12 +13,26 @@ class ChatView(StrEnum):
     FOCUS =  'focus'
     HISTORY = 'history'
 
+
+class ChatDetail(StrEnum):
+    """How much information the chat assistant packs into its replies.
+    Declaration order is the hotkey cycling order."""
+    LOW = 'low'          # essentials only
+    NORMAL = 'normal'    # essentials plus a little extra
+    HIGH = 'high'        # lots of information, allowed to be verbose
+
+class ImportAutotagMode(StrEnum):
+    OFF = 'off'
+    SAFE = 'safe'
+    KEEP = 'keep'
+
 DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5"
 
 @dataclass
 class Config:
     tui_chat_view: ChatView = ChatView.FOCUS
     chat_model: str = DEFAULT_CHAT_MODEL
+    chat_detail: ChatDetail = ChatDetail.NORMAL
 
     def __post_init__ (self):
         for f in fields(self):
