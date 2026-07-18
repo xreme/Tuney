@@ -38,7 +38,6 @@ class ChatScreen(Screen):
     BINDINGS = [
         ("escape", "back", "Back to menu"),
         ("ctrl+s", "swap", "Swap view"),
-        # Priority so it wins over the focused Input's own ctrl+d binding.
         Binding("ctrl+d", "cycle_detail", "Detail", priority=True),
         ("q", "quit", "Quit"),
     ]
@@ -101,7 +100,6 @@ class ChatScreen(Screen):
         # resolves a 1fr widget below 1 row, so reserve a row for the spacer
         # too or the query gets pushed a line past the dialog.
         mascot_height = self.query_one("#mascot").region.height + 1
-        # Hidden widgets have an empty region, so this is 0 when idle.
         stopwatch_height = self.query_one("#stopwatch").region.height
         available = dialog_height - mascot_height - stopwatch_height - query_height - 1
         scroll.styles.max_height = max(3, available)
@@ -142,9 +140,6 @@ class ChatScreen(Screen):
         self.refresh_bindings()
 
     # ---- stopwatch ---------------------------------------------------------
-    # One agent run at a time owns the stopwatch. The generation token makes
-    # a cancelled run's cleanup a no-op once a newer run has taken over, so
-    # the display never vanishes mid-run.
 
     def _start_stopwatch(self) -> int:
         self._stopwatch_gen += 1
@@ -263,9 +258,6 @@ class ChatScreen(Screen):
         try:
             pending = await _render(tuney_agent.astream(text))
             while pending:
-                # The supervisor itself has no confirmable tools today —
-                # specialist confirmations arrive via the handler registered
-                # above — but handle a top-level interrupt all the same.
                 pending = await _render(tuney_agent.aresume(await self._confirm(pending)))
         except asyncio.CancelledError:
             # Worker cancelled (new query submitted, screen closed). Keep any
@@ -277,7 +269,9 @@ class ChatScreen(Screen):
                            else "*(interrupted)*")
             raise
         except Exception as e:
-            parts.append(f"\n\n**[error]** {e}")
+            from tuney.agents.Agent import error_detail
+            self.log.error(f"agent stream failed: {e!r}")
+            parts.append(f"\n\n**[error]** {error_detail(e)}")
             for s in await _streams():
                 await s.write(parts[-1])
         finally:
