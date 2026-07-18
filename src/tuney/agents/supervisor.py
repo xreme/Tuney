@@ -16,6 +16,11 @@ async def _delegate(specialist: Agent, task: str) -> str:
     confirmation bridge and resume it with the user's decisions, repeating
     until the specialist finishes.
     """
+    # Every task is a self-contained brief, so the specialist needs no memory
+    # of earlier delegations — and a fresh thread keeps one oversized run
+    # (e.g. a huge search result) from blowing the context of every later one.
+    specialist.new_thread()
+
     parts: list[str] = []
     pending: list | None = None
 

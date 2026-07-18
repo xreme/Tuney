@@ -15,6 +15,35 @@ _REQUEST_TIMEOUT_MS = 60_000
 _STREAM_INACTIVITY_TIMEOUT = 120.0
 
 
+def error_detail(e: Exception) -> str:
+    """Human-readable description of a provider/API error.
+
+    OpenRouter collapses upstream failures into messages like "Provider
+    returned error"; the useful part (status code, provider name, the raw
+    upstream error text) lives in the exception's JSON body. Pull it out when
+    present, otherwise fall back to str(e).
+    """
+    body = getattr(e, "body", None)  # openai.APIError puts the JSON error here
+    if not isinstance(body, dict):
+        response = getattr(e, "response", None)
+        if response is not None:
+            try:
+                body = response.json().get("error")
+            except Exception:
+                body = None
+    if not isinstance(body, dict):
+        return str(e)
+    meta = body.get("metadata") or {}
+    parts = [str(body.get("message") or e)]
+    if body.get("code"):
+        parts.append(f"code {body['code']}")
+    if meta.get("provider_name"):
+        parts.append(f"provider: {meta['provider_name']}")
+    if meta.get("raw"):  # the actual upstream error text
+        parts.append(str(meta["raw"]))
+    return " — ".join(parts)
+
+
 class Agent:
     """A conversational agent configured with a model, system prompt, and tools.
 
@@ -72,6 +101,15 @@ class Agent:
         )
         self._agent_key = (model, prompt)
         return self._agent
+
+    def new_thread(self) -> None:
+        """Start a fresh conversation thread, discarding prior history.
+
+        Callers that treat each task as a self-contained brief (the
+        supervisor's specialists) call this before every run so one oversized
+        conversation can't poison every later request in the session.
+        """
+        self._thread_id = str(uuid.uuid4())
 
     def _payload(self, message: str) -> dict:
         return {"messages": [{"role": "user", "content": message}]}

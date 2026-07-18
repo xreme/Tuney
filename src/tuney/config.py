@@ -21,6 +21,11 @@ class ChatDetail(StrEnum):
     NORMAL = 'normal'    # essentials plus a little extra
     HIGH = 'high'        # lots of information, allowed to be verbose
 
+class ImportAutotagMode(StrEnum):
+    OFF = 'off'
+    SAFE = 'safe'
+    KEEP = 'keep'
+
 DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5"
 
 @dataclass

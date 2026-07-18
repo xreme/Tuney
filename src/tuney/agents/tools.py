@@ -6,6 +6,11 @@ from os import fsdecode
 from os.path import getsize
 
 
+# A serialized item is ~150 tokens; anything past a few hundred items risks
+# blowing the model's context window in one tool result.
+_MAX_RESULTS = 100
+
+
 def _serialize(item):
     """Compact JSON view of a beets item for the model to read."""
     return json.dumps({
@@ -15,18 +20,38 @@ def _serialize(item):
         "year": item.year,
         "month": item.month,
         "day": item.day,
-        "genres": item.get("genre", ""),
+        "genres": list(item.get("genres") or []),
         "beets_id": item.id,
     })
 
+
+def _capped(items):
+    """Serialize items, truncating past _MAX_RESULTS with a guidance note."""
+    results = [_serialize(item) for item in items[:_MAX_RESULTS]]
+    if len(items) > _MAX_RESULTS:
+        results.append(json.dumps({
+            "truncated": True,
+            "total_matches": len(items),
+            "note": (
+                f"Only the first {_MAX_RESULTS} of {len(items)} matching "
+                "tracks are shown. Narrow the query (add artist:, album:, "
+                "year:, genres: terms) to see specific tracks, or use "
+                "count_items / distinct_values to explore the full set."
+            ),
+        }))
+    return results
+
+
 @tool
 def list_collection():
-    """Return the user's entire music collection as a list of JSON items.
+    """Return the user's music collection as a list of JSON items.
 
     Expensive on large libraries — prefer `search_collection` when the user is
-    looking for something specific.
+    looking for something specific. At most the first 100 tracks are returned,
+    with a note giving the total count when the library is larger; use
+    `collection_stats` or `distinct_values` for whole-library overviews.
     """
-    return [_serialize(item) for item in library.all_items()]
+    return _capped(library.all_items())
 
 
 @tool
@@ -36,7 +61,9 @@ def search_collection(query: str):
     Pass a beets query built from the query language described in the system
     prompt (e.g. `artist:radiohead year:2000..`). Returns matching items as a
     list of JSON objects (title, album, artist, year, genres). An empty list
-    means nothing matched.
+    means nothing matched. At most the first 100 matches are returned; a
+    trailing note gives the total count when there are more — narrow the
+    query rather than re-listing large result sets.
 
     Matching is literal (substring), so spacing and spelling matter:
     `artist:speakerknockerz` will not match "Speaker Knockerz". On an empty
@@ -45,7 +72,7 @@ def search_collection(query: str):
     `artist::(?i)speaker.?knockerz`, try a shorter fragment, or correct the
     spelling — as described in the system prompt.
     """
-    return [_serialize(item) for item in library.search(query)]
+    return _capped(library.search(query))
 
 @tool
 def count_items(query: str) -> str:
@@ -71,7 +98,15 @@ def distinct_values(field: str, query: str = ""):
     most common first.
     """
     items = library.search(query) if query else library.all_items()
-    counts = Counter(str(item.get(field, "")) for item in items)
+    values = []
+    for item in items:
+        value = item.get(field, "")
+        # Multi-value fields (e.g. genres) hold lists; count each entry.
+        if isinstance(value, (list, tuple)):
+            values.extend(str(v) for v in value)
+        else:
+            values.append(str(value))
+    counts = Counter(values)
     counts.pop("", None)   # tracks missing the field entirely
     counts.pop("0", None)  # beets stores missing numeric fields (year) as 0
     return json.dumps(dict(counts.most_common()))
