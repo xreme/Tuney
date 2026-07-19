@@ -1,7 +1,7 @@
 from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.widgets import Header, Footer, ListView, ListItem, Label
-from tuney.tui.Screens import SearchScreen, CollectionScreen, ChatScreen, SettingScreen
+from tuney.tui.Screens import CollectionScreen, ChatScreen, SettingScreen
 from tuney.tui.Modals import ScanModal
 
 class MenuScreen(Screen):
@@ -13,7 +13,6 @@ class MenuScreen(Screen):
         yield Header()
         yield ListView(
             ListItem(Label("View Collection"), id="collection"),
-            ListItem(Label("Search library"), id="search"),
             ListItem(Label("Chat"), id="chat"),
             ListItem(Label("Scan Directory"), id="scan"),
             ListItem(Label("Settings"), id="settings"),
@@ -25,9 +24,7 @@ class MenuScreen(Screen):
         self.query_one(ListView).focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if event.item.id == "search":
-            self.app.push_screen(SearchScreen())
-        elif event.item.id == "collection":
+        if event.item.id == "collection":
             self.app.push_screen(CollectionScreen())
         elif event.item.id == "chat":
             self.app.push_screen(ChatScreen())
