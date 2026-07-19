@@ -79,6 +79,14 @@ class ConfirmModal(ModalScreen[bool]):
                                         bool(args.get("delete_files")))
         if name == "remove_album":
             return self._describe_album(args.get("album_id"), bool(args.get("delete_files")))
+        if name == "retag_collection":
+            return self._describe_retag(str(args.get("query") or ""))
+        if name == "set_track_tags":
+            return self._describe_set_tags(args.get("item_id"), args)
+        if name == "apply_track_tags":
+            return self._describe_apply_tags(args.get("item_id"),
+                                             str(args.get("artist") or "?"),
+                                             str(args.get("title") or "?"))
         return None
 
     @staticmethod
@@ -181,6 +189,69 @@ class ConfirmModal(ModalScreen[bool]):
                     "— this cannot be undone."
                     if delete else
                     "\nThe audio files will stay on disk.")
+        return text
+
+    def _describe_retag(self, query: str) -> Text:
+        try:
+            count = len(library.search(query) if query else library.all_items())
+        except Exception:
+            count = None
+        tracks = f"{count} tracks" if count is not None else "the matching tracks"
+        text = Text()
+        text.append("Tuney would like to re-tag ")
+        if query:
+            text.append(tracks, style=self.TITLE_STYLE)
+            text.append(" matching ")
+            text.append(query, style=self.ALBUM_STYLE)
+        else:
+            text.append("your ENTIRE library", style=self.TITLE_STYLE)
+            if count is not None:
+                text.append(f" ({count} tracks)")
+        text.append(
+            " by looking each album up on MusicBrainz.\n\n"
+            "Tracks with a confident match get corrected metadata written to "
+            "the library AND to the audio files' own tags; tracks without a "
+            "confident match are left untouched.\n\n"
+            "This can take a long time on many tracks."
+        )
+        return text
+
+    def _describe_set_tags(self, item_id, args: dict) -> Text:
+        old_title, old_artist, _album, path = self._item_fields(item_id)
+        item = self._lookup_item(item_id)
+        text = Text()
+        text.append("Tuney would like to edit the metadata of ")
+        text.append(old_title, style=self.TITLE_STYLE)
+        if old_artist:
+            text.append(f" by {old_artist}")
+        text.append(":\n\n")
+        for field in ("title", "artist", "album", "albumartist", "genre", "year"):
+            value = args.get(field)
+            if not value:
+                continue
+            old = (item.get(field) if item is not None else None) or "(empty)"
+            text.append(f"  {field}: {old} -> ")
+            text.append(str(value), style=self.TITLE_STYLE)
+            text.append("\n")
+        if path:
+            text.append("\n  File: ")
+            text.append(path, style=self.PATH_STYLE)
+        text.append("\n\nThe library entry and the file's own tags will be rewritten.")
+        return text
+
+    def _describe_apply_tags(self, item_id, artist: str, title: str) -> Text:
+        old_title, old_artist, _album, path = self._item_fields(item_id)
+        text = Text()
+        text.append("Tuney would like to fix the metadata of ")
+        text.append(old_title, style=self.TITLE_STYLE)
+        if old_artist:
+            text.append(f" by {old_artist}")
+        text.append(" using MusicBrainz:\n\n  New tags: ")
+        text.append(f"{artist} - {title}", style=self.TITLE_STYLE)
+        if path:
+            text.append("\n\n  File: ")
+            text.append(path, style=self.PATH_STYLE)
+        text.append("\n\nThe library entry and the file's own tags will be rewritten.")
         return text
 
     def compose(self) -> ComposeResult:

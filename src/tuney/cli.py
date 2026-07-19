@@ -1,3 +1,5 @@
+import os
+
 import typer
 from tuney import library
 
@@ -22,17 +24,28 @@ def scan(music_dir: str = typer.Argument(None)):
 
 @app.command()
 def search(query: str):
-    """Search your library"""
-    results = library.search(query)
+    """Search your library by metadata or file name"""
+    results = library.search_including_filenames(query)
     for item in results:
-        typer.echo(f"{item.id} | {item.title} ({item.album})")
+        typer.echo(f"{item.id} | {item.title or '(untagged)'} ({item.album})")
+
+@app.command("search-file")
+def search_file(fragment: str):
+    """Search your library by file name, folder, or extension."""
+    results = library.search_by_filename(fragment)
+    if not results:
+        typer.echo(f"No files matching {fragment!r}")
+        raise typer.Exit(code=1)
+    for item in results:
+        title = item.title or "(untagged)"
+        typer.echo(f"{item.id} | {title} ({os.fsdecode(item.path)})")
 
 @app.command()
 def locate(query:str):
-    """Search library for the path of item"""
-    results = library.search(query)
+    """Search library for the path of item, by metadata or file name"""
+    results = library.search_including_filenames(query)
     for item in results:
-        typer.echo(f"{item.id} | {item.title} ({item.path})")
+        typer.echo(f"{item.id} | {item.title or '(untagged)'} ({os.fsdecode(item.path)})")
 
 @app.command()
 def collection():
