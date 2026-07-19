@@ -22,9 +22,10 @@ class ChatDetail(StrEnum):
     HIGH = 'high'        # lots of information, allowed to be verbose
 
 class ImportAutotagMode(StrEnum):
-    OFF = 'off'
-    SAFE = 'safe'
-    KEEP = 'keep'
+    """What to do about metadata when songs are imported."""
+    OFF = 'off'      # import files as-is, no metadata lookup
+    SAFE = 'safe'    # autotag; skip albums without a confident match
+    KEEP = 'keep'    # autotag; import uncertain albums with their existing tags
 
 DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5"
 
@@ -33,6 +34,7 @@ class Config:
     tui_chat_view: ChatView = ChatView.FOCUS
     chat_model: str = DEFAULT_CHAT_MODEL
     chat_detail: ChatDetail = ChatDetail.NORMAL
+    import_autotag: ImportAutotagMode = ImportAutotagMode.OFF
 
     def __post_init__ (self):
         for f in fields(self):
