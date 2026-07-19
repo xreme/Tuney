@@ -3,7 +3,7 @@ from tuney import config, library
 from tuney.agents.Agent import Agent
 import json
 from datetime import datetime
-from tuney.agents.tools import list_collection, search_collection, count_items,distinct_values, item_information, collection_stats, locate_file, find_duplicates
+from tuney.agents.tools import list_collection, search_collection, count_items,distinct_values, item_information, collection_stats, locate_file, find_duplicates, random_sample, search_by_filename, find_missing_metadata
 
 
 SYSTEM_PROMPT = """
@@ -16,6 +16,8 @@ You have access to the user's music collection. Prefer `search_collection` with 
 targeted beets query over `list_collection`, which dumps the entire library and is
 expensive. Only use `list_collection` when the user genuinely wants everything or
 when a query can't express what they're after.
+
+Ensure your results are presented in a structured manner use tables whenever possible
 
 The `search_collection` tool speaks the beets query language. Build queries from
 these rules:
@@ -56,10 +58,24 @@ with variations first:
 4. Fix likely misspellings using your own knowledge of the artist/album/title.
 5. Still nothing? Use `distinct_values("artist")` (or "album") and scan the
    result for a close match to what the user asked for.
+6. The track may be in the library untagged (no title/artist metadata at
+   all) — try `search_by_filename` with a distinctive fragment of what the
+   user said; untagged tracks are only findable by their file name.
 
-Only after these attempts fail should you tell the user it isn't in their
-collection — and never invent results. If a variation succeeded, mention the
-actual spelling in their library so they know for next time.
+`search_by_filename` matches against file paths on disk rather than metadata.
+Reach for it directly when the user refers to a track by its file name (the
+collection screen shows file names for untagged tracks), asks what's inside a
+folder, or asks about files of a certain extension.
+
+For "what's untagged / missing metadata?" questions, use
+`find_missing_metadata` — it scans the whole library, reports exactly which
+fields each track is missing (treating placeholders like "Unknown Artist" as
+missing), and includes each track's file name.
+
+Only after all attempts fail should you tell the user it isn't in their
+collection and never invent results. If a variation succeeded, mention the
+actual spelling in their library so they know for next time. Make sure you 
+attempt everything possible to find the result before returning emptyhanded.
 
 """
 
@@ -67,7 +83,8 @@ actual spelling in their library so they know for next time.
 
 TOOLS = [list_collection, search_collection,
          item_information, count_items, distinct_values,
-           collection_stats, locate_file, find_duplicates]
+           collection_stats, locate_file, find_duplicates,
+           random_sample, search_by_filename, find_missing_metadata]
 
 
 def _dated_prompt() -> str:

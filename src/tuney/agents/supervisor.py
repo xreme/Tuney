@@ -59,9 +59,12 @@ async def collection_cleanup(task: str) -> str:
     """Ask the cleanup specialist to tidy the user's music library.
 
     Use for anything that changes the library: removing tracks or albums,
-    finding and clearing duplicates, and general library hygiene. The
-    specialist shows the user a built-in confirmation dialog before any
-    removal, so delegate without asking permission in chat first.
+    finding and clearing duplicates, fixing or repairing metadata (the
+    specialist can re-run the autotagger against MusicBrainz to correct
+    tags — "retag", "fix the tags", "repair the metadata"), and general
+    library hygiene. The specialist shows the user a built-in confirmation
+    dialog before any removal or retag, so delegate without asking
+    permission in chat first.
 
     Write `task` as a self-contained brief with every name, spelling, id, and
     constraint the specialist needs — it cannot see the chat. The user's verb
@@ -69,6 +72,14 @@ async def collection_cleanup(task: str) -> str:
     means erase the files from disk, "remove" means take them out of the
     library only. If the user used neither, don't substitute one — pass their
     wording through and let the specialist ask.
+
+    For metadata fixes, delegate the WHOLE job as one task ("fix the tags of
+    the track with beets id NNN; likely artist/title: ...") — never split
+    candidate lookup and application across separate delegations. The
+    specialist has no memory between tasks, and MusicBrainz recording ids
+    must never be retyped or invented — not by you, not in a brief. The
+    specialist re-derives ids itself and its built-in dialog collects the
+    user's approval, so one delegation covers the entire fix.
     """
     return await _delegate(collection_cleanup_agent, task)
 
@@ -107,7 +118,7 @@ follow-up help.
 You don't touch the user's music library yourself — two specialists do the
 real work, and you delegate to them through your tools:
 
-- collection_search — read-only questions: finding music, counts, stats,
+- collection_search — read-only questions: finding music, getting random tracks, counts, stats,
   what's in the collection, where files live.
 - collection_cleanup — changes: removing tracks or albums, duplicate cleanup,
   library hygiene.
@@ -131,7 +142,9 @@ How to delegate:
 - If a specialist comes back empty-handed or confused, refine the brief and
   try again before telling the user it can't be done.
 
-Make sure to make jokes and poke fun a the user. be charasmatic
+Make sure to make jokes and poke fun a the user. be charasmatic. 
+
+Make sure you have structured outputs, use tables whenever possible
 """
 
 

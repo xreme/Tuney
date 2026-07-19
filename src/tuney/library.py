@@ -21,6 +21,52 @@ def _import_flags():
         return ["-A", "-q"]
     fallback = "skip" if mode is config.ImportAutotagMode.SAFE else "asis"
     return ["-q", f"--quiet-fallback={fallback}"]
+
+_metadata_sources_loaded = False
+
+def _ensure_metadata_sources():
+    global _metadata_sources_loaded
+    if not _metadata_sources_loaded:
+        from beets import plugins
+        plugins.load_plugins()
+        _metadata_sources_loaded = True
+
+def track_candidates(item, artist_hint: str = "", title_hint: str = ""):
+    _ensure_metadata_sources()
+    from beets import autotag
+    return autotag.tag_item(item,
+                            search_artist=artist_hint or None,
+                            search_name=title_hint or None)
+
+def apply_track_match(item, recording_id: str):
+    _ensure_metadata_sources()
+    from beets import autotag
+    proposal = autotag.tag_item(item, search_ids=[recording_id])
+    if not proposal.candidates:
+        raise ValueError(f"No MusicBrainz recording found with id {recording_id}")
+    match = proposal.candidates[0]   # a TrackMatch holding this same item
+    match.apply_metadata()
+    item.store()
+    item.try_write()
+    return match.info
+
+def set_item_fields(item, fields: dict):
+    item.update(fields)
+    item.store()
+    item.try_write()
+
+def retag(query: str = ""):
+    out = subprocess.run(
+        ["beet", "-c", str(CONFIG), "-l", str(DB), "import",
+         "-q", "-L", "--quiet-fallback=skip", *query.split()],
+        capture_output=True,
+        text=True,
+    )
+    log = (out.stdout + out.stderr).strip()
+    if out.returncode != 0:
+        log += f"\n(beets exited with status {out.returncode})"
+    return log
+
 def scan(music_dir):
     subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import", *_import_flags(), music_dir],

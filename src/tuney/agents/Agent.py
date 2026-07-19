@@ -66,6 +66,7 @@ class Agent:
         self._tools = list(tools)
         self._middleware = list(middleware)
         self._thread_id = thread_id or str(uuid.uuid4())
+        self._uid = str(uuid.uuid4())
         self._agent = None
         self._agent_key = None
         # Owned by the instance (not the built graph) so the conversation
@@ -93,6 +94,7 @@ class Agent:
                 model=model,
                 openrouter_api_key=key,
                 timeout=_REQUEST_TIMEOUT_MS,
+                metadata={"tuney_agent_uid": self._uid},
             ),
             tools=self._tools,
             system_prompt=prompt,
@@ -167,7 +169,10 @@ class Agent:
                     yield "interrupt", data["__interrupt__"][0].value["action_requests"]
                 continue
         
-            chunk, _meta = data
+            chunk, meta = data
+
+            if meta.get("tuney_agent_uid") != self._uid:
+                continue
 
             if isinstance(chunk, AIMessageChunk):
                 for block in chunk.content_blocks:
