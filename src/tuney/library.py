@@ -42,6 +42,18 @@ def search(query):
     lib = Library(DB)
     return list(lib.items(query))
 
+def search_by_filename(fragment):
+    needle = fragment.lower()
+    return [item for item in all_items()
+            if item.path and needle in os.fsdecode(item.path).lower()]
+
+def search_including_filenames(query):
+    items = search(query)
+    seen = {item.id for item in items}
+    items += [item for item in search_by_filename(query)
+              if item.id not in seen]
+    return items
+
 def all_items():
     lib = Library(DB)
     return list(lib.items())

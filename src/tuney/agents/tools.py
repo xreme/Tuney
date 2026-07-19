@@ -72,7 +72,24 @@ def search_collection(query: str):
     `artist::(?i)speaker.?knockerz`, try a shorter fragment, or correct the
     spelling — as described in the system prompt.
     """
-    return _capped(library.search(query))
+@tool
+def search_by_filename(fragment: str, max: int = 100, page: int = 1):
+    """Find tracks whose audio file path on disk contains a fragment.
+
+    Case-insensitive substring match against each track's full file path, so
+    it finds file names (`track 01`, `y2mate`), extensions (`.flac`), and
+    folder names (`Downloads`). Use it when the user refers to music by file
+    name — common for untagged tracks, whose title shows as their file name
+    in the collection screen — or asks what's in a folder or of a format.
+
+    Each result includes the usual metadata plus the file_name it matched.
+    Results are paginated like `search_collection`: `max` sets the page size
+    (default and cap 100) and `page` selects a 1-based page. An empty list
+    means no file path contains the fragment — try a shorter fragment before
+    concluding the track is missing.
+    """
+    matches = library.search_by_filename(fragment)
+    return _capped(matches, max=max, page=page, serialize=_serialize_with_file)
 
 @tool
 def count_items(query: str) -> str:

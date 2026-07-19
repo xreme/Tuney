@@ -1,3 +1,6 @@
+from os import fsdecode
+from os.path import basename
+
 from textual.screen import Screen
 from textual.app import ComposeResult
 from textual.widgets import Header, Footer, DataTable, Input
@@ -70,6 +73,15 @@ class CollectionScreen(Screen):
             else:
                 self._text_keys.append(table.add_column(label))
 
+    def _cell(self, item, field):
+        """Display value for one cell, with fallbacks for missing metadata."""
+        value = getattr(item, field)
+        if field == "title" and not value:
+            return basename(fsdecode(item.path))
+        if field in ("artist", "album") and not value:
+            return "Unknown"
+        return value
+
     def _visible_items(self):
         items = self._items
         query = self.query_one("#filter", Input).value.strip().lower()
@@ -77,7 +89,7 @@ class CollectionScreen(Screen):
             # Every word must appear somewhere in the row's text.
             def matches(item):
                 haystack = " ".join(
-                    str(getattr(item, field)) for _, field in self.COLUMNS
+                    str(self._cell(item, field)) for _, field in self.COLUMNS
                 ).lower()
                 return all(word in haystack for word in query.split())
             items = [item for item in items if matches(item)]
@@ -94,7 +106,7 @@ class CollectionScreen(Screen):
         table.clear()
         items = self._visible_items()
         for item in items:
-            table.add_row(*(getattr(item, field) for _, field in self.COLUMNS))
+            table.add_row(*(self._cell(item, field) for _, field in self.COLUMNS))
         if len(items) == len(self._items):
             self.sub_title = f"{len(self._items)} items"
         else:
