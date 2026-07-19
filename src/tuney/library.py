@@ -5,6 +5,8 @@ import beets
 from beets.library import Library
 from platformdirs import PlatformDirs
 
+from tuney import config
+
 beets.config.read()
 CONFIG = Path("config/beets.yaml")
 dirs = PlatformDirs("Tuney")
@@ -13,15 +15,21 @@ DB = dirs.user_data_path/"Tuney.db"
 
 # TODO implement library singleton
 
+def _import_flags():
+    mode = config.get_config().import_autotag
+    if mode is config.ImportAutotagMode.OFF:
+        return ["-A", "-q"]
+    fallback = "skip" if mode is config.ImportAutotagMode.SAFE else "asis"
+    return ["-q", f"--quiet-fallback={fallback}"]
 def scan(music_dir):
     subprocess.run(
-        ["beet", "-c", str(CONFIG), "-l", str(DB), "import", "-A", "-q", music_dir],
+        ["beet", "-c", str(CONFIG), "-l", str(DB), "import", *_import_flags(), music_dir],
         check=True
     )
 
 def scan_stream(music_dir):
     proc = subprocess.Popen(
-        ["beet", "-c", str(CONFIG), "-l", str(DB), "import", "-A", music_dir],
+        ["beet", "-c", str(CONFIG), "-l", str(DB), "import", *_import_flags(), music_dir],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

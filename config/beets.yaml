@@ -3,7 +3,7 @@ plugins: duplicates
 import:
   copy: no
   move: no
-  write: no
+  write: yes
   duplicate_action: keep
 
 duplicates:

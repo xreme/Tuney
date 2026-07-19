@@ -1,4 +1,6 @@
+from textual import on
 from textual.screen import Screen
+from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Input, Header, Footer, Static, Button, RadioButton, RadioSet
@@ -22,6 +24,13 @@ class SettingScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll():
+            yield Static("Auto-tagging", classes="section")
+            yield Static("Configure the behaviour of tagging when songs are imported")
+            with RadioSet(id="Autotag-set"):
+                yield RadioButton("Off — import files as-is, no metadata lookup", id="autotag-off")
+                yield RadioButton("Safe — fix metadata, skip albums without a confident match", id="autotag-safe")
+                yield RadioButton("Keep — fix metadata, import uncertain albums with their existing tags", id="autotag-keep")
+
             yield Static("OpenRouter API key", classes="section")
             yield Static(id="key-status", classes="hint")
             yield Input(placeholder="sk-or-...", password=True, id="key-input")
@@ -59,6 +68,7 @@ class SettingScreen(Screen):
         cfg = config.get_config()
         self.query_one("#model-input", Input).value = cfg.chat_model
         self.query_one(f"#detail-{cfg.chat_detail}", RadioButton).value = True
+        self.query_one(f"#autotag-{cfg.import_autotag}", RadioButton).value = True
         self._refresh_key_status()
         self.query_one("#about", Static).update(
             f"Library database: {library.DB}\n"
@@ -84,7 +94,18 @@ class SettingScreen(Screen):
 
     # ---- actions -----------------------------------------------------------
 
-    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+    @on(RadioSet.Changed, "#Autotag-set")
+    def on_autotag_changed(self, event: RadioSet.Changed) -> None:
+        mode = config.ImportAutotagMode(event.pressed.id.removeprefix("autotag-"))
+        cfg = config.get_config()
+        if cfg.import_autotag == mode:   # on_mount preselection, not a change
+            return
+        cfg.import_autotag = mode
+        cfg.save()
+        self.notify(f"Import auto-tagging set to {mode}.")
+
+    @on(RadioSet.Changed, "#detail-set")
+    def on_detail_changed(self, event: RadioSet.Changed) -> None:
         detail = config.ChatDetail(event.pressed.id.removeprefix("detail-"))
         cfg = config.get_config()
         if cfg.chat_detail == detail:    # on_mount preselection, not a change
