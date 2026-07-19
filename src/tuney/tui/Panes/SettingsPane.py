@@ -1,28 +1,27 @@
-from textual import on
-from textual.screen import Screen
-from textual import on
+from textual import on, work
 from textual.app import ComposeResult
+from textual.css.query import NoMatches
 from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Input, Header, Footer, Static, Button, RadioButton, RadioSet
+from textual.widgets import Input, Static, Button, RadioButton, RadioSet
 from tuney import config, credentials, library
+from .base import Pane
 
 
-class SettingScreen(Screen):
-    """Configure Tuney: OpenRouter API key and chat model."""
+class SettingsPane(Pane):
+    """Configure Tuney: auto-tagging, OpenRouter API key and chat model."""
 
-    BINDINGS = [("escape", "back", "Back to menu")]
+    PANE_NAME = "Settings"
 
     DEFAULT_CSS = """
-    SettingScreen VerticalScroll { padding: 1 2; }
-    SettingScreen .section { text-style: bold; margin-top: 1; }
-    SettingScreen .hint { color: $text-muted; }
-    SettingScreen Input { max-width: 70; margin-top: 1; }
-    SettingScreen Horizontal { height: auto; margin-top: 1; }
-    SettingScreen Button { margin-right: 2; }
+    SettingsPane VerticalScroll { padding: 1 2; }
+    SettingsPane .section { text-style: bold; margin-top: 1; }
+    SettingsPane .hint { color: $text-muted; }
+    SettingsPane Input { max-width: 70; margin-top: 1; }
+    SettingsPane Horizontal { height: auto; margin-top: 1; }
+    SettingsPane Button { margin-right: 2; }
     """
 
     def compose(self) -> ComposeResult:
-        yield Header()
         with VerticalScroll():
             yield Static("Auto-tagging", classes="section")
             yield Static("Configure the behaviour of tagging when songs are imported")
@@ -51,7 +50,7 @@ class SettingScreen(Screen):
             yield Static("Chat detail", classes="section")
             yield Static(
                 "How much information Tuney packs into replies. Also "
-                "switchable from the chat screen (^d). Takes effect on your "
+                "switchable from the chat pane (^d). Takes effect on your "
                 "next message.",
                 classes="hint",
             )
@@ -62,7 +61,6 @@ class SettingScreen(Screen):
 
             yield Static("About", classes="section")
             yield Static(id="about", classes="hint")
-        yield Footer()
 
     def on_mount(self) -> None:
         cfg = config.get_config()
@@ -73,8 +71,26 @@ class SettingScreen(Screen):
         self.query_one("#about", Static).update(
             f"Library database: {library.DB}\n"
             f"Settings file:    {config.config_file}\n"
-            f"Tracks indexed:   {len(library.all_items())}"
+            f"Tracks indexed:   counting…"
         )
+        self._load_track_count()
+
+    @work(thread=True)
+    def _load_track_count(self) -> None:
+        count = len(library.all_items())
+
+        def show() -> None:
+            try:
+                about = self.query_one("#about", Static)
+            except NoMatches:
+                return      # pane closed while the library was being counted
+            about.update(
+                f"Library database: {library.DB}\n"
+                f"Settings file:    {config.config_file}\n"
+                f"Tracks indexed:   {count}",
+            )
+
+        self.app.call_from_thread(show)
 
     def _refresh_key_status(self) -> None:
         env_key = credentials.env_api_key()
@@ -159,6 +175,3 @@ class SettingScreen(Screen):
         cfg.chat_model = value
         cfg.save()
         self.notify(f"Chat model set to {value}.")
-
-    def action_back(self) -> None:
-        self.app.pop_screen()

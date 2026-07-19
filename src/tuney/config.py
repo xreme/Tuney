@@ -35,6 +35,7 @@ class Config:
     chat_model: str = DEFAULT_CHAT_MODEL
     chat_detail: ChatDetail = ChatDetail.NORMAL
     import_autotag: ImportAutotagMode = ImportAutotagMode.OFF
+    workspace_layout: dict | None = None
 
     def __post_init__ (self):
         for f in fields(self):
