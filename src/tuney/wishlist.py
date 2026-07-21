@@ -30,20 +30,30 @@ class Wishlist:
         self.db_path = db_path
         self.connection = self._connect(db_path)
 
-    def add_item(self):
+    def add_item(
+        self,
+        artist: str = "",
+        title: str = "",
+        album: str = "",
+        year: int | None = None,
+        mb_id: str = "",
+        notes: str = "",
+        priority: int = 0,
+        status: str = "wanted",
+    ) -> int:
         pass
 
-    def remove_item(self, id):
+    def remove_item(self, id: int) -> None:
         pass
 
-    def clear_wishlist(self):
+    def clear_wishlist(self) -> None:
         pass
 
-    def update_item(self, id, fields):
+    def update_item(self, id: int, fields: dict) -> None:
         pass
 
-    def all_items(self):
+    def all_items(self) -> list[dict]:
         pass
 
-    def get_item(self, id):
+    def get_item(self, id: int) -> dict | None:
         pass
