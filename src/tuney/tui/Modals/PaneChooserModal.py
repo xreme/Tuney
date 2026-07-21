@@ -31,22 +31,20 @@ class PaneChooserModal(ModalScreen[str | None]):
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    PANES = [
-        ("collection", "Collection"),
-        ("chat", "Chat"),
-        ("settings", "Settings"),
-    ]
-
     def __init__(self, title: str = "New pane") -> None:
         super().__init__()
         self._title = title
 
     def compose(self) -> ComposeResult:
+        # Imported here rather than at module scope: panes import from Modals,
+        # so a top-level import of Panes would create a cycle.
+        from tuney.tui.Panes import pane_choices
+
         with Container(id="chooser-dialog"):
             yield Label(self._title, id="chooser-title")
             yield ListView(
                 *(ListItem(Label(label), id=f"choose-{name}")
-                  for name, label in self.PANES)
+                  for name, label in pane_choices())
             )
 
     def on_mount(self) -> None:
