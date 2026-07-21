@@ -198,6 +198,39 @@ def get_album(album_id: int):
     lib = Library(DB)
     return lib.get_album(album_id)
 
+
+def reconcile_wishlist(wishlist) -> list[dict]:
+    """Auto-detect which wishlist items the user now owns and mark them
+    acquired. For every not-yet-acquired item found in the collection, sets
+    its status to "acquired" and links the matching beets item id via
+    `acquired_id`. Returns the items that were updated, each as
+    {id, acquired_id}. Idempotent — already-acquired items are skipped.
+
+    Builds one in-memory index of the collection (keyed by MusicBrainz id and
+    by lowercased artist+title) so the whole wishlist is reconciled with a
+    single library read rather than a query per item."""
+    by_mb: dict[str, int] = {}
+    by_name: dict[tuple, int] = {}
+    for item in all_items():
+        if item.mb_trackid:
+            by_mb.setdefault(item.mb_trackid, item.id)
+        if item.artist and item.title:
+            by_name.setdefault((item.artist.lower(), item.title.lower()), item.id)
+
+    updated: list[dict] = []
+    for entry in wishlist.all_items() or []:
+        if entry.get("status") == "acquired" or entry.get("acquired_id"):
+            continue
+        beets_id = by_mb.get(entry.get("mb_id") or None)
+        if beets_id is None and entry.get("artist") and entry.get("title"):
+            beets_id = by_name.get(
+                (entry["artist"].lower(), entry["title"].lower()))
+        if beets_id is not None:
+            wishlist.update_item(
+                entry["id"], {"status": "acquired", "acquired_id": beets_id})
+            updated.append({"id": entry["id"], "acquired_id": beets_id})
+    return updated
+
 class DriveNotMounted(FileNotFoundError):
     """The volume holding the file isn't mounted right now."""
 

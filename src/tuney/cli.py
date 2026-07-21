@@ -155,7 +155,10 @@ def wishlist_list(
     ),
 ):
     """List wishlist items, one per line."""
-    items = _wishlist().all_items() or []
+    wishlist = _wishlist()
+    # Auto-detect items now owned, so their status shows as acquired.
+    library.reconcile_wishlist(wishlist)
+    items = wishlist.all_items() or []
     if filter_text:
         items = [item for item in items if _matches_filter(item, filter_text)]
     if not items:
@@ -233,6 +236,18 @@ def wishlist_clear():
         raise typer.Exit
     _wishlist().clear_wishlist()
     typer.echo("Wishlist cleared.")
+
+
+@wishlist_app.command("sync")
+def wishlist_sync():
+    """Auto-detect wishlist items you now own and mark them acquired."""
+    updated = library.reconcile_wishlist(_wishlist())
+    if not updated:
+        typer.echo("No new acquisitions detected.")
+        return
+    typer.echo(f"Marked {len(updated)} item(s) as acquired:")
+    for row in updated:
+        typer.echo(f"  wishlist {row['id']} -> collection item {row['acquired_id']}")
 
 
 @wishlist_app.command("update")

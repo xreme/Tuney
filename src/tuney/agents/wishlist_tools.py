@@ -139,6 +139,30 @@ def match_wishlist_musicbrainz(artist: str, title: str, album: str = ""):
 
 
 @tool
+def reconcile_wishlist():
+    """Auto-detect which wishlist items the user now owns and mark them
+    acquired.
+
+    Scans the wishlist against the music collection; any not-yet-acquired item
+    that matches a track the user owns (by MusicBrainz id, else by
+    artist+title) has its status set to "acquired" and is linked to the
+    collection track via `acquired_id`. Read-only against the collection and
+    idempotent — already-acquired items are skipped, and it never adds,
+    removes, or edits anything else. Use it when the user asks whether they
+    already own something on their wishlist, or to refresh acquired status.
+
+    Returns how many items were newly marked acquired and their ids.
+    """
+    updated = library.reconcile_wishlist(_wl())
+    if not updated:
+        return "No new acquisitions detected — nothing on the wishlist matched the collection."
+    return json.dumps({
+        "newly_acquired": len(updated),
+        "items": updated,
+    })
+
+
+@tool
 def update_wishlist_item(item_id: int, artist: str = "", title: str = "",
                          album: str = "", year: int | None = None,
                          notes: str = "", priority: int | None = None,

@@ -8,6 +8,7 @@ from tuney.agents.wishlist_tools import (
     wishlist_item_information,
     add_wishlist_item,
     match_wishlist_musicbrainz,
+    reconcile_wishlist,
     update_wishlist_item,
     remove_wishlist_item,
     clear_wishlist,
@@ -37,6 +38,10 @@ Your tools:
   candidates (with scores). Use it to resolve an mb_id before adding, then add
   with that mb_id in the SAME run — don't stop to report candidates unless
   none fit.
+- reconcile_wishlist — auto-detect which wishlist items the user now owns and
+  mark them "acquired" (linking the collection track). Use it for "do I already
+  own anything on my wishlist?" or to refresh acquired status. Read-only against
+  the collection, idempotent, no confirmation.
 - update_wishlist_item — edit an existing item (bump priority, change status,
   add notes, correct fields). Only the fields you pass change. Additive, no
   confirmation.
@@ -63,6 +68,7 @@ _TOOLS = [
     wishlist_item_information,
     add_wishlist_item,
     match_wishlist_musicbrainz,
+    reconcile_wishlist,
     update_wishlist_item,
     remove_wishlist_item,
     clear_wishlist,
