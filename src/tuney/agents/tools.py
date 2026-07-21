@@ -12,6 +12,18 @@ from os.path import basename, getsize
 _MAX_RESULTS = 100
 
 
+def _searched(query: str):
+    """library.search, but a bad query comes back as an error string for the
+    model to correct instead of an exception that kills the whole run."""
+    try:
+        return library.search(query)
+    except Exception as e:
+        return (f"Invalid beets query {query!r}: {e}. Fix the query and "
+                "retry. Common cause: regex flags like (?i) must be the very "
+                "first thing in the pattern — write field::(?i)^foo, "
+                "never field::^(?i)foo.")
+
+
 def _item_dict(item):
     """Compact view of a beets item for the model to read."""
     return {
@@ -93,7 +105,10 @@ def search_collection(query: str, max: int = 100, page: int = 1):
     `artist::(?i)speaker.?knockerz`, try a shorter fragment, or correct the
     spelling — as described in the system prompt.
     """
-    return _capped(library.search(query), max=max, page=page)
+    items = _searched(query)
+    if isinstance(items, str):
+        return items
+    return _capped(items, max=max, page=page)
 
 @tool
 def search_by_filename(fragment: str, max: int = 100, page: int = 1):
@@ -129,7 +144,9 @@ def random_sample(query: str = "", count: int = 5):
     nothing matched the query.
     """
     count = min(count, _MAX_RESULTS) if count > 0 else 5
-    items = library.search(query) if query else library.all_items()
+    items = _searched(query) if query else library.all_items()
+    if isinstance(items, str):
+        return items
     sample = random.sample(list(items), min(count, len(items)))
     return [_serialize(item) for item in sample]
 
@@ -197,7 +214,10 @@ def count_items(query: str) -> str:
     prompt (e.g. `artist:radiohead year:2000..`). Returns the count of matched items.
     """
 
-    return len(library.search(query))
+    items = _searched(query)
+    if isinstance(items, str):
+        return items
+    return len(items)
 
 @tool
 def distinct_values(field: str, query: str = ""):
@@ -211,7 +231,9 @@ def distinct_values(field: str, query: str = ""):
     Returns a JSON object mapping each value to how many tracks have it,
     most common first.
     """
-    items = library.search(query) if query else library.all_items()
+    items = _searched(query) if query else library.all_items()
+    if isinstance(items, str):
+        return items
     counts = Counter(str(item.get(field, "")) for item in items)
     counts.pop("", None)   # tracks missing the field entirely
     counts.pop("0", None)  # beets stores missing numeric fields (year) as 0
