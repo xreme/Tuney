@@ -11,7 +11,7 @@ from tuney.tui import layout
 from tuney.tui.layout import PaneLeaf, Split
 from tuney.tui.Modals import ScanModal
 from tuney.tui.Modals.PaneChooserModal import PaneChooserModal
-from tuney.tui.Panes import PANE_TYPES, Pane, ChatPane, CollectionPane, StatsBar
+from tuney.tui.Panes import PANE_TYPES, Pane, ChatPane, CollectionPane, StatsBar, pane_names
 
 
 class WorkspaceScreen(Screen):
@@ -61,7 +61,7 @@ class WorkspaceScreen(Screen):
     def on_mount(self) -> None:
         self._save_timer = None
         saved = config.get_config().workspace_layout
-        self.root = (layout.from_dict(saved) if saved is not None
+        self.root = (layout.from_dict(saved, pane_names()) if saved is not None
                      else layout.default_layout())
         tiles = self.query_one("#tiles")
         tiles.mount(self._build_node(self.root))

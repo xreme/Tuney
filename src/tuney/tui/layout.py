@@ -17,7 +17,7 @@ def _next_id() -> int:
 
 @dataclass
 class PaneLeaf:
-    pane: str                                   # "collection" | "chat" | "settings"
+    pane: str                                   # a pane key from the Panes registry
     node_id: int = field(default_factory=_next_id)
 
 
@@ -52,19 +52,21 @@ def to_dict(node: Node) -> dict:
     }
 
 
-def from_dict(data) -> Node:
-    """Rebuild a tree from config JSON; any malformed input falls back to
-    the default single-pane layout rather than crashing the app."""
+def from_dict(data, valid_panes) -> Node:
+    """Rebuild a tree from config JSON; any malformed input (including a pane
+    key not in `valid_panes`) falls back to the default single-pane layout
+    rather than crashing the app. `valid_panes` is passed in — rather than
+    imported — to keep this module free of any Textual/pane dependency."""
     try:
-        return _parse(data)
+        return _parse(data, valid_panes)
     except (KeyError, TypeError, ValueError):
         return default_layout()
 
 
-def _parse(data) -> Node:
+def _parse(data, valid_panes) -> Node:
     if data["type"] == "pane":
         pane = data["pane"]
-        if pane not in ("collection", "chat", "settings"):
+        if pane not in valid_panes:
             raise ValueError(pane)
         return PaneLeaf(pane)
     if data["type"] == "split":
@@ -72,7 +74,8 @@ def _parse(data) -> Node:
         if direction not in ("row", "col"):
             raise ValueError(direction)
         ratio = min(MAX_RATIO, max(MIN_RATIO, float(data["ratio"])))
-        return Split(direction, ratio, _parse(data["a"]), _parse(data["b"]))
+        return Split(direction, ratio,
+                     _parse(data["a"], valid_panes), _parse(data["b"], valid_panes))
     raise ValueError(data["type"])
 
 
