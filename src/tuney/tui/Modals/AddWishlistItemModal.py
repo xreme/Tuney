@@ -13,9 +13,8 @@ class AddWishlistItemModal(ModalScreen[int | bool | None]):
 
     Beyond the plain fields, this offers MusicBrainz matching: fill in an
     artist/title, hit Match, and pick from the candidates to stamp an mb_id
-    (and prefill the metadata). An mb_id typed in directly can be looked up to
-    validate and flesh it out. Both MusicBrainz calls hit the network, so they
-    run off the UI thread.
+    (and prefill the metadata). An mb_id can also be typed in directly. The
+    MusicBrainz search hits the network, so it runs off the UI thread.
     """
 
     CSS = """
@@ -35,7 +34,7 @@ class AddWishlistItemModal(ModalScreen[int | bool | None]):
         text-style: bold;
         padding-bottom: 1;
     }
-    #add-fields { height: auto; max-height: 18; }
+    #add-fields { height: auto; max-height: 32; }
     #add-fields Label { padding: 0 1; color: $text-muted; }
     #add-fields Input { margin-bottom: 1; }
     #add-status { width: 100%; text-align: center; color: $text-muted; }
@@ -78,7 +77,6 @@ class AddWishlistItemModal(ModalScreen[int | bool | None]):
             yield DataTable(id="candidates", classes="hidden")
             with Horizontal(id="add-buttons"):
                 yield Button("Match", id="match")
-                yield Button("Look up id", id="lookup")
                 yield Button("Add", id="add", variant="primary")
                 yield Button("Cancel", id="cancel")
             yield Label(
@@ -169,42 +167,11 @@ class AddWishlistItemModal(ModalScreen[int | bool | None]):
                 self._set(key, value)
         self._status("Filled from MusicBrainz match.")
 
-    # ---- direct mb_id lookup ----------------------------------------------
-
-    def action_lookup(self) -> None:
-        mb_id = self._value("mb_id")
-        if not mb_id:
-            self.notify("Enter a MusicBrainz id to look up.",
-                        severity="warning")
-            return
-        self._status("Looking up recording…")
-        self._lookup(mb_id)
-
-    @work(thread=True, exclusive=True)
-    def _lookup(self, mb_id: str) -> None:
-        try:
-            track = library.musicbrainz_track(mb_id)
-        except Exception as error:
-            self.app.call_from_thread(self._match_failed, error)
-            return
-        self.app.call_from_thread(self._apply_track, track)
-
-    def _apply_track(self, track: dict | None) -> None:
-        if not track:
-            self._status("No MusicBrainz recording with that id.")
-            return
-        for key in ("artist", "title", "album", "year"):
-            value = track.get(key)
-            if value:
-                self._set(key, value)
-        self._status("Details filled from MusicBrainz.")
-
     # ---- submit ------------------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         actions = {
             "match": self.action_match,
-            "lookup": self.action_lookup,
             "add": self.action_add,
             "cancel": self.action_cancel,
         }

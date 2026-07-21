@@ -1,6 +1,7 @@
 from textual import work
 from textual.app import ComposeResult
-from textual.widgets import DataTable, Input
+from textual.containers import Horizontal
+from textual.widgets import Button, DataTable, Input
 
 from tuney import library
 from tuney.wishlist import Wishlist
@@ -16,9 +17,18 @@ class WishlistPane(Pane):
     PANE_NAME = "Wishlist"
 
     DEFAULT_CSS = """
-    WishlistPane #filter {
+    WishlistPane #wishlist-toolbar {
         dock: top;
+        height: auto;
+    }
+    WishlistPane #filter {
+        width: 1fr;
         border: tall $accent;
+    }
+    WishlistPane #add-item {
+        width: auto;
+        height: 3;
+        margin-left: 1;
     }
     WishlistPane DataTable {
         height: 1fr;
@@ -67,7 +77,9 @@ class WishlistPane(Pane):
         self._loaded = False
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder="Filter by artist, title or album…", id="filter")
+        with Horizontal(id="wishlist-toolbar"):
+            yield Input(placeholder="Filter by artist, title or album…", id="filter")
+            yield Button("Add", id="add-item", variant="primary")
         yield DataTable()
 
     def on_mount(self) -> None:
@@ -248,6 +260,10 @@ class WishlistPane(Pane):
 
     def action_add_item(self) -> None:
         self.app.push_screen(AddWishlistItemModal(), self._on_add_closed)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "add-item":
+            self.action_add_item()
 
     def _on_add_closed(self, result) -> None:
         """A truthy result means an item was added — reload to show it."""
