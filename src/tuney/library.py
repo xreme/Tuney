@@ -50,6 +50,54 @@ def apply_track_match(item, recording_id: str):
     item.try_write()
     return match.info
 
+
+def _track_info_dict(info, score=None):
+    """Framework-agnostic view of a beets TrackInfo (a MusicBrainz recording),
+    for callers that don't have (or want) a beets Item — e.g. the wishlist."""
+    data = {
+        "mb_id": getattr(info, "track_id", "") or "",
+        "artist": getattr(info, "artist", "") or "",
+        "title": getattr(info, "title", "") or "",
+        "album": getattr(info, "album", "") or "",
+        "year": getattr(info, "year", None),
+    }
+    if score is not None:
+        data["score"] = score
+    return data
+
+
+def musicbrainz_candidates(artist: str = "", title: str = "", album: str = "",
+                           limit: int = 5) -> list[dict]:
+    """Search MusicBrainz for recordings matching an artist/title (and optional
+    album), without needing a track already in the library. Returns up to
+    `limit` candidate dicts (mb_id, artist, title, album, year, score), best
+    match first; score is 0..1 where 1.0 is a perfect match. Empty list when
+    MusicBrainz returns nothing. Use it to offer matches when adding a wishlist
+    item; the chosen candidate's mb_id can then be stored on the item."""
+    _ensure_metadata_sources()
+    from beets import autotag
+    from beets.library import Item
+    item = Item(artist=artist, title=title, album=album)
+    proposal = autotag.tag_item(item,
+                                search_artist=artist or None,
+                                search_name=title or None)
+    return [_track_info_dict(match.info, round(1 - match.distance.distance, 3))
+            for match in proposal.candidates[:limit]]
+
+
+def musicbrainz_track(recording_id: str) -> dict | None:
+    """Look up a single MusicBrainz recording by its id and return it as a dict
+    (mb_id, artist, title, album, year), or None if no recording has that id.
+    Use it to validate and flesh out an mb_id the user typed in directly when
+    adding a wishlist item."""
+    _ensure_metadata_sources()
+    from beets import autotag
+    from beets.library import Item
+    proposal = autotag.tag_item(Item(), search_ids=[recording_id])
+    if not proposal.candidates:
+        return None
+    return _track_info_dict(proposal.candidates[0].info)
+
 def preview_track_match(item, recording_id: str) -> list[tuple[str, object, object]]:
     """The field changes `apply_track_match` would make: (field, old, new)
     rows. Nothing is stored or written — but the item is mutated in memory,
