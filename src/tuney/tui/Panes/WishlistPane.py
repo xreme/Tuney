@@ -100,7 +100,11 @@ class WishlistPane(Pane):
         changed, so the table keeps its cursor and scroll position."""
         if not self.is_mounted:
             return
-        items = Wishlist(library.DB).all_items() or []
+        wishlist = Wishlist(library.DB)
+        # Auto-detect any items the user now owns and mark them acquired
+        # before reading the rows we display.
+        library.reconcile_wishlist(wishlist)
+        items = wishlist.all_items() or []
         if self._loaded and self._fingerprint(items) == self._fingerprint(self._items):
             return
         self.app.call_from_thread(self._apply_items, items)
