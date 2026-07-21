@@ -2,6 +2,7 @@ from .base import Pane
 from .CollectionPane import CollectionPane
 from .ChatPane import ChatPane
 from .SettingsPane import SettingsPane
+from .WishlistPane import WishlistPane
 from .StatsBar import StatsBar
 
 # The pane registry: layout-tree pane names → widget classes. This is the
@@ -11,6 +12,7 @@ PANE_TYPES = {
     "collection": CollectionPane,
     "chat": ChatPane,
     "settings": SettingsPane,
+    "wishlist": WishlistPane,
 }
 
 
