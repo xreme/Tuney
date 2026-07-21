@@ -8,6 +8,7 @@ from tuney.agents.Agent import Agent
 from tuney.agents.confirmation import confirm
 from tuney.agents.collectionSearchAgent import collection_search_agent
 from tuney.agents.collectionCleanupAgent import collection_cleanup_agent
+from tuney.agents.wishlistAgent import wishlist_agent
 
 
 async def _delegate(specialist: Agent, task: str, name: str = "specialist") -> str:
@@ -89,6 +90,31 @@ async def collection_cleanup(task: str) -> str:
     return await _delegate(collection_cleanup_agent, task, name="Cleanup")
 
 
+@tool
+async def wishlist(task: str) -> str:
+    """Ask the wishlist specialist to manage the user's wishlist.
+
+    A wishlist tracks music the user WANTS but doesn't own yet — it is
+    separate from their music library. Use for anything about wishlisted
+    music: listing or searching the wishlist, adding a wanted track (the
+    specialist can look it up on MusicBrainz to pin an exact release),
+    updating an item's priority/status/notes, or removing items. The
+    specialist shows the user a built-in confirmation dialog before any
+    wishlist removal, so delegate without asking permission in chat first.
+
+    Note that "remove from the wishlist" only takes an item off the wishlist —
+    it never removes tracks from the library or deletes files; route
+    library/file removals to collection_cleanup instead.
+
+    Write `task` as a self-contained brief with every name, spelling, id, and
+    constraint the specialist needs — it cannot see the chat. Delegate a
+    MusicBrainz-matched add as ONE task ("add 'Song' by 'Artist' to the
+    wishlist, matching it on MusicBrainz") — the specialist looks up the id
+    itself; never retype or invent a MusicBrainz id in the brief.
+    """
+    return await _delegate(wishlist_agent, task, name="Wishlist")
+
+
 # Reply-length guidance per chat detail level; the user switches levels in
 # settings or with a hotkey in the chat screen.
 _DETAIL_GUIDANCE = {
@@ -127,6 +153,12 @@ real work, and you delegate to them through your tools:
   what's in the collection, where files live.
 - collection_cleanup — changes: removing tracks or albums, duplicate cleanup,
   library hygiene.
+- wishlist — the user's wishlist of music they WANT but don't own yet
+  (separate from the library): listing/searching it, adding wanted tracks
+  (optionally matched on MusicBrainz), changing an item's priority, status, or
+  notes, and removing wishlist items. "Add X to my wishlist", "what's on my
+  wishlist", "bump the priority of Y" go here — not collection_search/cleanup,
+  which are about music the user already owns.
 
 How to delegate:
 - Each task must be a self-contained brief. The specialists don't see this
@@ -167,5 +199,5 @@ tuney_agent = Agent(
     # per-role model config exists.
     model="google/gemini-3-flash-preview",
     system_prompt=_dated_prompt,
-    tools=[collection_search, collection_cleanup],
+    tools=[collection_search, collection_cleanup, wishlist],
 )
