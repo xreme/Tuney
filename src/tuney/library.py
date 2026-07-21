@@ -50,12 +50,28 @@ def apply_track_match(item, recording_id: str):
     item.try_write()
     return match.info
 
+def preview_track_match(item, recording_id: str) -> list[tuple[str, object, object]]:
+    """The field changes `apply_track_match` would make: (field, old, new)
+    rows. Nothing is stored or written — but the item is mutated in memory,
+    so pass a throwaway instance (a fresh `get_item`), not one you keep."""
+    _ensure_metadata_sources()
+    from beets import autotag
+    proposal = autotag.tag_item(item, search_ids=[recording_id])
+    if not proposal.candidates:
+        raise ValueError(f"No MusicBrainz recording found with id {recording_id}")
+    before = dict(item)
+    proposal.candidates[0].apply_metadata()
+    return [(field, before.get(field), value)
+            for field, value in dict(item).items()
+            if value != before.get(field)]
+
 def set_item_fields(item, fields: dict):
     item.update(fields)
     item.store()
     item.try_write()
 
 def retag(query: str = ""):
+    query = _fix_regex_flags(query)
     out = subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import",
          "-q", "-L", "--quiet-fallback=skip", *query.split()],
@@ -84,9 +100,31 @@ def scan_stream(music_dir):
         yield line.rstrip()
     proc.wait()
 
+import re as _re
+
+_FLAG_GROUP = _re.compile(r"\(\?([aiLmsux]+)\)")
+
+def _fix_regex_flags(query: str) -> str:
+    """Move global regex flags to the front of each ::pattern in a query.
+
+    Python 3.12+ rejects '(?i)' anywhere but position 0 of a pattern, and
+    the agents love writing 'field::^(?i)foo' — rewrite it to
+    'field::(?i)^foo' instead of failing the whole query.
+    """
+    def fix(token: str) -> str:
+        if "::" not in token:
+            return token
+        field, _, pattern = token.partition("::")
+        flags = "".join(m.group(1) for m in _FLAG_GROUP.finditer(pattern))
+        if not flags:
+            return token
+        stripped = _FLAG_GROUP.sub("", pattern)
+        return f"{field}::(?{''.join(sorted(set(flags)))}){stripped}"
+    return " ".join(fix(token) for token in query.split(" "))
+
 def search(query):
     lib = Library(DB)
-    return list(lib.items(query))
+    return list(lib.items(_fix_regex_flags(query)))
 
 def search_by_filename(fragment):
     needle = fragment.lower()

@@ -3,13 +3,14 @@ from datetime import datetime
 from langchain.tools import tool
 
 from tuney import config
+from tuney.agents import activity
 from tuney.agents.Agent import Agent
 from tuney.agents.confirmation import confirm
 from tuney.agents.collectionSearchAgent import collection_search_agent
 from tuney.agents.collectionCleanupAgent import collection_cleanup_agent
 
 
-async def _delegate(specialist: Agent, task: str) -> str:
+async def _delegate(specialist: Agent, task: str, name: str = "specialist") -> str:
     """Run a task on a specialist and return its final answer text.
 
     If the specialist pauses for tool confirmation, ask the active UI via the
@@ -33,10 +34,14 @@ async def _delegate(specialist: Agent, task: str) -> str:
             elif kind == "text":
                 parts.append(token)
 
-    await _consume(specialist.astream(task))
-    while pending:
-        decisions = await confirm(pending)
-        await _consume(specialist.aresume(decisions))
+    token = activity.start(name, task)
+    try:
+        await _consume(specialist.astream(task))
+        while pending:
+            decisions = await confirm(pending)
+            await _consume(specialist.aresume(decisions))
+    finally:
+        activity.finish(token)
     return "".join(parts) or "(the specialist returned no answer)"
 
 
@@ -51,7 +56,7 @@ async def collection_search(task: str) -> str:
     Write `task` as a self-contained brief with every name, spelling, id, and
     constraint the specialist needs — it cannot see the chat.
     """
-    return await _delegate(collection_search_agent, task)
+    return await _delegate(collection_search_agent, task, name="Search")
 
 
 @tool
@@ -81,7 +86,7 @@ async def collection_cleanup(task: str) -> str:
     specialist re-derives ids itself and its built-in dialog collects the
     user's approval, so one delegation covers the entire fix.
     """
-    return await _delegate(collection_cleanup_agent, task)
+    return await _delegate(collection_cleanup_agent, task, name="Cleanup")
 
 
 # Reply-length guidance per chat detail level; the user switches levels in
@@ -158,7 +163,9 @@ def _dated_prompt() -> str:
 
 
 tuney_agent = Agent(
-    model=lambda: config.get_config().chat_model,
+    # Pinned per docs/model-benchmark.md; ignores the chat_model setting until
+    # per-role model config exists.
+    model="google/gemini-3-flash-preview",
     system_prompt=_dated_prompt,
     tools=[collection_search, collection_cleanup],
 )

@@ -175,6 +175,9 @@ class Agent:
                 continue
 
             if isinstance(chunk, AIMessageChunk):
+                # Whitelist: only text/reasoning reach the UI. Tool-call blocks
+                # (including the malformed invalid_tool_call fragments some
+                # providers stream, e.g. kimi-k2.5 via OpenRouter) are dropped.
                 for block in chunk.content_blocks:
                     if block.get("type") == "text" and block.get("text"):
                         yield "text", block["text"]
