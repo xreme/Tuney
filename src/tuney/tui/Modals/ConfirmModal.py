@@ -101,6 +101,10 @@ class ConfirmModal(ModalScreen[bool | str]):
                 str(args.get("artist") or "?"),
                 str(args.get("title") or "?"),
                 note="Fetching the full list of changes from MusicBrainz…")
+        if name == "remove_wishlist_item":
+            return self._describe_wishlist_item(args.get("item_id"))
+        if name == "clear_wishlist":
+            return self._describe_clear_wishlist()
         return None
 
     @staticmethod
@@ -300,6 +304,78 @@ class ConfirmModal(ModalScreen[bool | str]):
             text.append("\n\n  File: ")
             text.append(path, style=self.PATH_STYLE)
         text.append("\n\nThe library entry and the file's own tags will be rewritten.")
+        return text
+
+    # Style for a wishlist item's status chip ("wanted", "ordered", …).
+    STATUS_STYLE = "green"
+
+    @staticmethod
+    def _wishlist():
+        from tuney.wishlist import Wishlist
+        return Wishlist(library.DB)
+
+    def _wishlist_fields(self, item_id) -> tuple[str, str | None, str | None, str | None]:
+        """(title, artist, album, status) for a wishlist id, with fallbacks."""
+        try:
+            item = self._wishlist().get_item(item_id)
+        except Exception:
+            item = None
+        if not item:
+            return f"item {item_id}", None, None, None
+        return (
+            str(item.get("title") or f"item {item_id}"),
+            str(item.get("artist") or "") or None,
+            str(item.get("album") or "") or None,
+            str(item.get("status") or "") or None,
+        )
+
+    def _describe_wishlist_item(self, item_id) -> Text:
+        title, artist, album, status = self._wishlist_fields(item_id)
+        text = Text()
+        text.append("Tuney would like to remove ")
+        text.append(title, style=self.TITLE_STYLE)
+        if artist:
+            text.append(f" by {artist}")
+        if album:
+            text.append(" from ")
+            text.append(album, style=self.ALBUM_STYLE)
+        if status:
+            text.append(" (")
+            text.append(status, style=self.STATUS_STYLE)
+            text.append(")")
+        text.append(" from your wishlist.\n\n")
+        text.append("This only changes your wishlist — nothing in your music "
+                    "library or on disk is affected.")
+        return text
+
+    def _describe_clear_wishlist(self) -> Text:
+        try:
+            items = list(self._wishlist().all_items() or [])
+        except Exception:
+            items = None
+        text = Text()
+        if items is None:
+            text.append("Tuney would like to clear your ")
+            text.append("ENTIRE wishlist", style=self.TITLE_STYLE)
+            text.append(".\n\n")
+        else:
+            count = len(items)
+            word = "item" if count == 1 else "items"
+            text.append("Tuney would like to clear your ")
+            text.append("ENTIRE wishlist", style=self.TITLE_STYLE)
+            text.append(f" — all {count} {word}:\n\n")
+            for item in items:
+                text.append("  • ")
+                text.append(str(item.get("title") or f"item {item.get('id')}"),
+                            style=self.TITLE_STYLE)
+                artist = str(item.get("artist") or "") or None
+                if artist:
+                    text.append(f" by {artist}")
+                text.append("\n")
+            text.append("\n")
+        text.append("This empties your wishlist. Your music library and the "
+                    "files on disk stay exactly as they are — but this cannot "
+                    "be undone.")
         return text
 
     def compose(self) -> ComposeResult:
