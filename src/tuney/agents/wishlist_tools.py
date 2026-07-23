@@ -218,6 +218,35 @@ def remove_wishlist_item(item_id: int):
 
 
 @tool
+def remove_wishlist_items(item_ids: list[int]):
+    """Remove SEVERAL items from the user's wishlist at once, by their ids.
+
+    Use this for any multi-item removal instead of calling
+    `remove_wishlist_item` in a loop — it shows the user ONE confirmation
+    dialog listing every item and deletes them in a single database
+    transaction, which is far faster and avoids the lock contention a
+    one-at-a-time loop causes. Only touches the wishlist; it never affects the
+    music library or files on disk. Calling this tool automatically shows the
+    confirmation dialog, so do NOT ask for permission in chat first. Verify the
+    ids first (via `list_wishlist`/`search_wishlist`); to empty the whole
+    wishlist use `clear_wishlist` instead.
+
+    Returns a JSON object with how many items were removed and the artist/title
+    of each — relay those exact values.
+    """
+    ids = [int(i) for i in item_ids]
+    removed = [item for item in (_wl().get_item(i) for i in ids) if item]
+    count = _wl().remove_items(ids)
+    return json.dumps({
+        "removed": count,
+        "items": [{"id": item["id"],
+                   "artist": item.get("artist", ""),
+                   "title": item.get("title", "")}
+                  for item in removed],
+    })
+
+
+@tool
 def clear_wishlist():
     """Remove EVERY item from the user's wishlist. This cannot be undone.
 

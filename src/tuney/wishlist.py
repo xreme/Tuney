@@ -14,7 +14,14 @@ class Wishlist:
         # thread (WishlistPane.reload) while the rest of the app uses it on the
         # main thread. Access is light and SQLite serializes writes, so one
         # shared connection is fine.
-        return sqlite3.connect(db_path, check_same_thread=False)
+        #
+        # timeout: Tuney.db is shared with the beets library, so several
+        # connections (this one, the pane's reload thread, the agent's tools)
+        # can try to write at once — e.g. a mass removal while the pane's
+        # reconcile pass is running. Without a generous busy timeout the loser
+        # of that race fails immediately with "database is locked"; 30s lets it
+        # wait for the other writer to commit instead.
+        return sqlite3.connect(db_path, check_same_thread=False, timeout=30)
 
     def _create_table(self):
         self.connection.execute(
@@ -68,6 +75,16 @@ class Wishlist:
     def remove_item(self, id: int) -> None:
         self.connection.execute("DELETE FROM wishlist WHERE id = ?", (id,))
         self.connection.commit()
+
+    def remove_items(self, ids) -> int:
+        ids = [int(i) for i in ids]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = self.connection.execute(
+            f"DELETE FROM wishlist WHERE id IN ({placeholders})", ids)
+        self.connection.commit()
+        return cur.rowcount
 
     def clear_wishlist(self) -> None:
         self.connection.execute("DELETE FROM wishlist")
