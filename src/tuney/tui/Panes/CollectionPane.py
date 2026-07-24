@@ -1,8 +1,10 @@
+import sqlite3
 from os import fsdecode
 from os.path import basename
 
 from textual import work
 from textual.app import ComposeResult
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Input
 from tuney import library
 from tuney.tui.Modals import TrackDetailModal
@@ -80,6 +82,12 @@ class CollectionPane(Pane):
     def focus_pane(self) -> None:
         self.query_one(DataTable).focus()
 
+    def _table(self) -> DataTable | None:
+        try:
+            return self.query_one(DataTable)
+        except NoMatches:
+            return None
+
     @work(thread=True, exclusive=True)
     def reload(self) -> None:
         """Re-read the library (after a scan/import/retag may have changed
@@ -89,7 +97,10 @@ class CollectionPane(Pane):
         keeps its cursor and scroll position."""
         if not self.is_mounted:        # nothing to update yet
             return
-        items = library.all_items()
+        try:
+            items = library.all_items()
+        except sqlite3.OperationalError:
+            return
         if self._fingerprint(items) == self._fingerprint(self._items):
             return
         self.app.call_from_thread(self._apply_items, items)
@@ -105,7 +116,8 @@ class CollectionPane(Pane):
                 for item in items]
 
     def on_resize(self) -> None:
-        self._fit_columns()
+        if self._table() is not None:
+            self._fit_columns()
 
     def _build_columns(self) -> None:
         """(Re)create the columns, marking the sorted one with an arrow."""
@@ -153,7 +165,9 @@ class CollectionPane(Pane):
         return items
 
     def _refresh_rows(self) -> None:
-        table = self.query_one(DataTable)
+        table = self._table()
+        if table is None:
+            return
         table.clear()
         items = self._visible_items()
         self._visible = items          # row index -> item, for row selection
@@ -170,7 +184,9 @@ class CollectionPane(Pane):
         refresh bumps the generation, cancelling any population in flight."""
         if generation != self._populate_gen or not self.is_mounted:
             return
-        table = self.query_one(DataTable)
+        table = self._table()
+        if table is None:
+            return
         for item in self._visible[start:start + self.ROW_CHUNK]:
             table.add_row(*(self._cell(item, field) for _, field in self.COLUMNS))
         if start + self.ROW_CHUNK < len(self._visible):
@@ -207,7 +223,9 @@ class CollectionPane(Pane):
 
     def _fit_columns(self) -> None:
         """Give Artist/Title/Album equal widths that fill the visible table."""
-        table = self.query_one(DataTable)
+        table = self._table()
+        if table is None:
+            return
         pad = table.cell_padding * 2                 # padding per column (both sides)
 
         # Space to render into, minus a little slack for the scrollbar/borders.

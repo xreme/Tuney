@@ -11,7 +11,8 @@ from tuney.tui import layout
 from tuney.tui.layout import PaneLeaf, Split
 from tuney.tui.Modals import ScanModal
 from tuney.tui.Modals.PaneChooserModal import PaneChooserModal
-from tuney.tui.Panes import PANE_TYPES, Pane, CollectionPane, StatsBar, pane_names
+from tuney.tui.Panes import (
+    PANE_TYPES, Pane, CollectionPane, StatsBar, WishlistPane, pane_names)
 
 
 class WorkspaceScreen(Screen):
@@ -80,6 +81,9 @@ class WorkspaceScreen(Screen):
         self.query_one(StatsBar).refresh_stats()
         for pane in self.query(CollectionPane):
             pane.reload()
+        for pane in self.query(WishlistPane):
+            pane.reload()
+            pane.reconcile()
 
     # ---- tree → widgets ----------------------------------------------------
 

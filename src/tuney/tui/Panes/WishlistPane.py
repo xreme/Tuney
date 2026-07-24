@@ -5,7 +5,8 @@ from textual.widgets import Button, DataTable, Input
 
 from tuney import library
 from tuney.wishlist import Wishlist
-from tuney.tui.Modals import AddWishlistItemModal, WishlistDetailModal
+from tuney.tui.Modals import (
+    AddWishlistItemModal, WishlistDetailModal, WishlistEditModal)
 from .base import Pane
 
 
@@ -39,26 +40,24 @@ class WishlistPane(Pane):
         ("escape", "clear_filter", "Clear filter"),
         ("/", "find", "Filter"),
         ("a", "add_item", "Add"),
+        ("e", "edit_item", "Edit"),
+        ("d", "delete_item", "Delete"),
     ]
 
-    # (label, dict key) for each column, in display order.
+    # (label, dict key) for each column, in display order. A wishlist entry is
+    # just a song, so we keep it minimal.
     COLUMNS = [
         ("Artist", "artist"),
         ("Title", "title"),
         ("Album", "album"),
-        ("Year", "year"),
-        ("Priority", "priority"),
         ("Status", "status"),
         ("ID", "id"),
     ]
 
-    # Fixed widths for the narrow columns; the three text columns share the rest.
-    YEAR_WIDTH = 6
-    PRIORITY_WIDTH = 9
-    STATUS_WIDTH = 10
-    ID_WIDTH = 6
+    # Fixed pixel widths for the narrow columns; the text columns (everything
+    # not listed here) share the remaining width evenly.
+    FIXED_WIDTHS = {"status": 10, "id": 6}
     MIN_TEXT_WIDTH = 8
-    FIXED_FIELDS = {"year", "priority", "status", "id"}
 
     # Rows go into the table in slices this big, yielding to the event loop
     # between slices so a large wishlist doesn't freeze the app while it fills.
@@ -87,7 +86,8 @@ class WishlistPane(Pane):
         table.cursor_type = "row"
         self._build_columns()
         self.border_subtitle = "loading…"
-        self.reload()
+        self.reload()          # instant: just reads and shows the rows
+        self.reconcile()       # background: detect acquisitions, refresh if any
         self.call_after_refresh(self._fit_columns)
 
     def focus_pane(self) -> None:
@@ -95,16 +95,21 @@ class WishlistPane(Pane):
 
     @work(thread=True, exclusive=True)
     def reload(self) -> None:
-        """Re-read the wishlist (after an add or edit may have changed it).
-        The read runs in a thread and skips the refresh when nothing visible
-        changed, so the table keeps its cursor and scroll position."""
+        if not self.is_mounted:
+            return
+        self._show(Wishlist(library.DB).all_items() or [])
+
+    @work(thread=True, exclusive=True, group="wishlist-reconcile")
+    def reconcile(self) -> None:
         if not self.is_mounted:
             return
         wishlist = Wishlist(library.DB)
-        # Auto-detect any items the user now owns and mark them acquired
-        # before reading the rows we display.
-        library.reconcile_wishlist(wishlist)
-        items = wishlist.all_items() or []
+        if library.reconcile_wishlist(wishlist):
+            self._show(wishlist.all_items() or [])
+
+    def _show(self, items: list[dict]) -> None:
+        """Apply a freshly read row set on the main thread, skipping the
+        refresh when nothing visible changed (keeps cursor/scroll)."""
         if self._loaded and self._fingerprint(items) == self._fingerprint(self._items):
             return
         self.app.call_from_thread(self._apply_items, items)
@@ -115,10 +120,7 @@ class WishlistPane(Pane):
         self._refresh_rows()
 
     def _fingerprint(self, items: list[dict]) -> list[tuple]:
-        """Identity plus every displayed field, so an edit counts as a change
-        even though the row id stays the same."""
-        return [(item.get("id"), *(item.get(field) for _, field in self.COLUMNS))
-                for item in items]
+        return [tuple(item.items()) for item in items]
 
     def on_resize(self) -> None:
         self._fit_columns()
@@ -128,17 +130,11 @@ class WishlistPane(Pane):
         table = self.query_one(DataTable)
         table.clear(columns=True)
         self._text_keys = []
-        widths = {
-            "year": self.YEAR_WIDTH,
-            "priority": self.PRIORITY_WIDTH,
-            "status": self.STATUS_WIDTH,
-            "id": self.ID_WIDTH,
-        }
         for label, field in self.COLUMNS:
             if field == self._sort_field:
                 label += " ▼" if self._sort_reverse else " ▲"
-            if field in self.FIXED_FIELDS:
-                table.add_column(label, width=widths[field])
+            if field in self.FIXED_WIDTHS:
+                table.add_column(label, width=self.FIXED_WIDTHS[field])
             else:
                 self._text_keys.append(table.add_column(label))
 
@@ -231,20 +227,20 @@ class WishlistPane(Pane):
         self._fit_columns()
 
     def _fit_columns(self) -> None:
-        """Give Artist/Title/Album equal widths that fill the visible table."""
+        """Give the text columns equal widths that fill the visible table."""
         table = self.query_one(DataTable)
         pad = table.cell_padding * 2                 # padding per column (both sides)
 
         # Space to render into, minus a little slack for the scrollbar/borders.
         available = table.size.width - 2
-        if available <= 0:
+        if available <= 0 or not self._text_keys:
             return
 
         # Render width consumed by the fixed columns (value + padding).
-        fixed = ((self.YEAR_WIDTH + pad) + (self.PRIORITY_WIDTH + pad)
-                 + (self.STATUS_WIDTH + pad) + (self.ID_WIDTH + pad))
-        # Remaining space, split evenly across the three text columns' content.
-        each = max(self.MIN_TEXT_WIDTH, (available - fixed) // 3 - pad)
+        fixed = sum(width + pad for width in self.FIXED_WIDTHS.values())
+        # Remaining space, split evenly across the text columns' content.
+        each = max(self.MIN_TEXT_WIDTH,
+                   (available - fixed) // len(self._text_keys) - pad)
 
         for key in self._text_keys:
             column = table.columns[key]
@@ -265,11 +261,34 @@ class WishlistPane(Pane):
     def action_add_item(self) -> None:
         self.app.push_screen(AddWishlistItemModal(), self._on_add_closed)
 
+    def action_edit_item(self) -> None:
+        """Edit the row under the cursor."""
+        row = self.query_one(DataTable).cursor_row
+        if 0 <= row < len(self._visible):
+            self.app.push_screen(
+                WishlistEditModal(self._visible[row]), self._on_edit_closed)
+
+    def action_delete_item(self) -> None:
+        """Delete the row under the cursor from the wishlist entirely."""
+        row = self.query_one(DataTable).cursor_row
+        if not (0 <= row < len(self._visible)):
+            return
+        item = self._visible[row]
+        Wishlist(library.DB).remove_item(item["id"])
+        label = (f"{item.get('artist', '')} - {item.get('title', '')}"
+                 .strip(" -") or f"item {item['id']}")
+        self.notify(f"Removed “{label}” from the wishlist.")
+        self.reload()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "add-item":
             self.action_add_item()
 
     def _on_add_closed(self, result) -> None:
         """A truthy result means an item was added — reload to show it."""
+        if result:
+            self.reload()
+
+    def _on_edit_closed(self, result) -> None:
         if result:
             self.reload()
