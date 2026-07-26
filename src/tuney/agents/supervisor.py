@@ -67,8 +67,9 @@ async def collection_cleanup(task: str) -> str:
     Use for anything that changes the library: removing tracks or albums,
     finding and clearing duplicates, fixing or repairing metadata (the
     specialist can re-run the autotagger against MusicBrainz to correct
-    tags — "retag", "fix the tags", "repair the metadata"), and general
-    library hygiene. The specialist shows the user a built-in confirmation
+    tags — "retag", "fix the tags", "repair the metadata"), downloading and
+    embedding cover art ("add the cover", "this album has no artwork"), and
+    general library hygiene. The specialist shows the user a built-in confirmation
     dialog before any removal or retag, so delegate without asking
     permission in chat first.
 

@@ -186,6 +186,50 @@ def retag(query: str = ""):
         log += f"\n(beets exited with status {out.returncode})"
     return log
 
+def fetch_album_art(query: str = "", force: bool = False,
+                    embed: bool = True) -> str:
+    """Download cover art for the album(s) matching `query` and, when `embed`
+    is set, write it into their audio files.
+
+    `query` is a beets query that matches whole ALBUMS (same language as a
+    search; `id:NNN` targets a specific album id). An empty query covers the
+    whole library — allowed for fetching, but embedding is skipped in that case
+    so an empty query can't rewrite every file. `force` re-downloads even for
+    albums that already have art. Returns the combined beets log."""
+    query = _fix_regex_flags(query)
+    tokens = query.split()
+
+    fetch_cmd = ["beet", "-c", str(CONFIG), "-l", str(DB), "fetchart"]
+    if force:
+        fetch_cmd.append("-f")
+    fetch = subprocess.run(fetch_cmd + tokens, capture_output=True, text=True)
+    log = (fetch.stdout + fetch.stderr).strip()
+    if fetch.returncode != 0:
+        log += f"\n(beets fetchart exited with status {fetch.returncode})"
+
+    # embedart with no query would embed art into every album's files; only
+    # embed when the caller actually narrowed to something.
+    if embed and tokens:
+        emb = subprocess.run(
+            ["beet", "-c", str(CONFIG), "-l", str(DB), "embedart", "-y", *tokens],
+            capture_output=True, text=True)
+        emb_log = (emb.stdout + emb.stderr).strip()
+        if emb.returncode != 0:
+            emb_log += f"\n(beets embedart exited with status {emb.returncode})"
+        log = f"{log}\n{emb_log}".strip()
+
+    return log
+
+
+def album_has_art(album_id: int) -> bool:
+    """Whether the album now has a linked art file on disk — used to confirm a
+    fetch actually landed something."""
+    album = get_album(album_id)
+    if album is None or not album.artpath:
+        return False
+    return os.path.exists(os.fsdecode(album.artpath))
+
+
 def scan(music_dir):
     subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import", *_import_flags(), music_dir],
