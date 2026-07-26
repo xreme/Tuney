@@ -107,35 +107,82 @@ def add_wishlist_item(artist: str, title: str, album: str = "",
 
     Pass at least an artist and title. `mb_id` links the item to a specific
     MusicBrainz recording — when the user wants an exact release, first call
-    `match_wishlist_musicbrainz` to get candidates, pick the right one, and
-    pass its `mb_id` here so the item is unambiguous. `priority` is a number
-    (higher = more wanted); `status` defaults to "wanted". This is additive
-    and needs no confirmation.
+    `search_musicbrainz` to get candidates, pick the right one, and pass its
+    `mb_id` here so the item is unambiguous. `priority` is a number (higher =
+    more wanted); `status` defaults to "wanted". This is additive and needs no
+    confirmation. To add several tracks at once (e.g. a whole album), use
+    `add_wishlist_items` instead of calling this repeatedly.
 
-    Returns the new item's id.
+    Returns the created item as a JSON object (including its new `id`, `artist`,
+    `title`, and `album`) — relay those exact values; don't restate them from
+    memory.
     """
     new_id = _wl().add_item(
         artist=artist, title=title, album=album, year=year,
         mb_id=mb_id, notes=notes, priority=priority, status=status,
     )
-    return f"Added wishlist item {new_id}: {artist} - {title}"
+    return json.dumps(_wl().get_item(new_id))
 
 
 @tool
-def match_wishlist_musicbrainz(artist: str, title: str, album: str = ""):
-    """Look up MusicBrainz candidates for a track the user wants to wishlist.
-    Read-only — nothing is added.
+def add_wishlist_items(items: list[dict]):
+    """Add several wanted tracks to the wishlist in one call — use this for a
+    whole album or any multi-track add instead of calling `add_wishlist_item`
+    repeatedly.
 
-    Returns up to 5 candidate JSON objects (mb_id, artist, title, album, year,
-    score), best match first, where score is 0..1 (1.0 = perfect). Pick the
-    candidate that matches the user's intent, then call `add_wishlist_item`
-    with its `mb_id` so the wishlist item points at an exact release. An empty
-    list means MusicBrainz returned nothing — try different or fuller
-    artist/title spelling before giving up.
+    `items` is a list of objects, each with at least `artist` and `title` and
+    optionally `album`, `year`, `mb_id`, `notes`, `priority`, and `status`
+    (unknown keys are ignored; `status` defaults to "wanted"). When wishlisting
+    a MusicBrainz album, pass the chosen release's `tracks` entries straight
+    through — each already carries its own `mb_id`, `title`, `album`, and
+    `year`. This is additive and needs no confirmation.
+
+    Returns a JSON array of the created items, each a full object with its new
+    `id`, `artist`, `title`, and `album`. This array is the ground truth of
+    what was added — relay those exact titles and ids to the user; never
+    summarize them away or fill any in from memory.
     """
-    candidates = library.musicbrainz_candidates(
-        artist=artist, title=title, album=album, limit=5)
-    return json.dumps(candidates)
+    created = []
+    for item in items:
+        fields = {name: item[name] for name in _EDITABLE_FIELDS if name in item}
+        if not (fields.get("artist") or fields.get("title")):
+            continue
+        new_id = _wl().add_item(**fields)
+        created.append(_wl().get_item(new_id))
+    return json.dumps(created)
+
+
+@tool
+def search_musicbrainz(artist: str = "", title: str = "", album: str = "",
+                       kind: str = "single"):
+    """Search MusicBrainz for music the user might want to wishlist — either
+    singles (individual recordings) or whole albums (releases). Read-only;
+    nothing is added.
+
+    kind="single" (the default): search recordings by artist/title (pass an
+    album too to disambiguate). Returns up to 5 candidates, best match first:
+        {mb_id, artist, title, album, year, score}   (score 0..1, 1.0 = perfect)
+    Pick the one matching the user's intent and pass its `mb_id` to
+    `add_wishlist_item` so the item points at an exact recording.
+
+    kind="album": search releases by artist/album. Returns up to 5 albums, each
+    with its full tracklist:
+        {mb_id (release id), album, artist, year, track_count,
+         tracks: [{mb_id (recording id), artist, title, album, year}, ...]}
+    The wishlist stores individual songs, not albums — so to wishlist a whole
+    album, call `add_wishlist_item` once per entry in its `tracks` list; to
+    wishlist one song from it, add just that track. Album matches carry no
+    score (MusicBrainz's own ranking is used).
+
+    An empty list means nothing matched — retry with different or fuller
+    spelling before giving up.
+    """
+    if kind.strip().lower().startswith("album"):
+        return json.dumps(
+            library.musicbrainz_albums(artist=artist, album=album, limit=5))
+    return json.dumps(
+        library.musicbrainz_candidates(
+            artist=artist, title=title, album=album, limit=5))
 
 
 @tool

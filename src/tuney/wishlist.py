@@ -50,6 +50,20 @@ class Wishlist:
         self.connection.row_factory = sqlite3.Row
         self._create_table()
 
+    def close(self) -> None:
+        """Release the underlying SQLite connection. Transient callers (the TUI
+        pane's reload/reconcile, the modals) open a Wishlist per operation
+        against a DB shared with beets; leaving those connections open holds
+        locks that later reads/writes then wait on, which is what left the
+        wishlist pane stuck on 'loading…'. Prefer the context-manager form."""
+        self.connection.close()
+
+    def __enter__(self) -> "Wishlist":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def add_item(
         self,
         artist: str = "",

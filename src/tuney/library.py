@@ -98,6 +98,61 @@ def musicbrainz_track(recording_id: str) -> dict | None:
         return None
     return _track_info_dict(proposal.candidates[0].info)
 
+
+def musicbrainz_albums(artist: str = "", album: str = "",
+                       limit: int = 5) -> list[dict]:
+    """Search MusicBrainz for full albums (releases) matching an artist and/or
+    album name, without needing tracks already in the library. Returns up to
+    `limit` distinct album dicts, each carrying its complete tracklist so the
+    caller can offer "add the whole album" or let the user pick tracks:
+
+        {mb_id, album, artist, year, track_count,
+         tracks: [{mb_id, artist, title, album, year}, ...]}
+
+    The top-level `mb_id` is the MusicBrainz release id; each track's `mb_id`
+    is its recording id (what a wishlist item stores). Empty list when nothing
+    matched. Album-match scoring is unreliable without real track data, so no
+    score is returned — results are ordered as MusicBrainz ranks them."""
+    _ensure_metadata_sources()
+    from beets import autotag
+    from beets.library import Item
+    # tag_album needs at least one item; a single placeholder carrying the
+    # search terms is enough to get candidates back with full tracklists.
+    seed = Item(artist=artist, album=album, title="")
+    _, _, proposal = autotag.tag_album(
+        [seed], search_artist=artist or None, search_name=album or None)
+
+    albums: list[dict] = []
+    seen: set = set()
+    for match in proposal.candidates:
+        info = match.info
+        # Collapse duplicate pressings of the same release (same name, artist,
+        # and track count) — the user just wants the album, not a specific CD.
+        key = ((info.album or "").lower(), (info.artist or "").lower(),
+               len(info.tracks or []))
+        if key in seen:
+            continue
+        seen.add(key)
+        year = getattr(info, "year", None)
+        tracks = [{
+            "mb_id": getattr(track, "track_id", "") or "",
+            "artist": getattr(track, "artist", "") or info.artist or "",
+            "title": getattr(track, "title", "") or "",
+            "album": info.album or "",
+            "year": year,
+        } for track in (info.tracks or [])]
+        albums.append({
+            "mb_id": getattr(info, "album_id", "") or "",
+            "album": info.album or "",
+            "artist": info.artist or "",
+            "year": year,
+            "track_count": len(tracks),
+            "tracks": tracks,
+        })
+        if len(albums) >= limit:
+            break
+    return albums
+
 def preview_track_match(item, recording_id: str) -> list[tuple[str, object, object]]:
     """The field changes `apply_track_match` would make: (field, old, new)
     rows. Nothing is stored or written — but the item is mutated in memory,
@@ -199,6 +254,23 @@ def get_album(album_id: int):
     return lib.get_album(album_id)
 
 
+# Trailing release-type qualifier some sources (e.g. Apple Music) bake into
+# the title/album tag — "Sanguine Paradise - Single". The wishlist stores the
+# bare song title, so strip it before comparing names.
+_RELEASE_SUFFIX = _re.compile(r"\s*-\s*(single|ep)\s*$", _re.IGNORECASE)
+
+
+def _name_key(artist: str, title: str) -> tuple[str, str]:
+    """Normalized (artist, title) used to match a wishlist item against a
+    collection track when their MusicBrainz ids differ (different recordings of
+    the same song). Lowercases, collapses whitespace, and drops a trailing
+    "- Single"/"- EP" from the title — conservative enough not to fuse songs
+    that are genuinely different."""
+    def norm(s: str) -> str:
+        return " ".join(s.strip().lower().split())
+    return norm(artist), norm(_RELEASE_SUFFIX.sub("", title.strip()))
+
+
 def reconcile_wishlist(wishlist) -> list[dict]:
     """Auto-detect which wishlist items the user now owns and mark them
     acquired. For every not-yet-acquired item found in the collection, sets
@@ -207,24 +279,30 @@ def reconcile_wishlist(wishlist) -> list[dict]:
     {id, acquired_id}. Idempotent — already-acquired items are skipped.
 
     Builds one in-memory index of the collection (keyed by MusicBrainz id and
-    by lowercased artist+title) so the whole wishlist is reconciled with a
-    single library read rather than a query per item."""
+    by a normalized artist+title, see `_name_key`) so the whole wishlist is
+    reconciled with a single library read rather than a query per item."""
+    # Nothing to reconcile? Skip the whole-library scan entirely. Indexing the
+    # collection is the expensive part (it loads every beets item), so an empty
+    # or already-acquired wishlist — the common case at startup — must not pay
+    # for it.
+    pending = [entry for entry in (wishlist.all_items() or [])
+               if entry.get("status") != "acquired" and not entry.get("acquired_id")]
+    if not pending:
+        return []
+
     by_mb: dict[str, int] = {}
     by_name: dict[tuple, int] = {}
     for item in all_items():
         if item.mb_trackid:
             by_mb.setdefault(item.mb_trackid, item.id)
         if item.artist and item.title:
-            by_name.setdefault((item.artist.lower(), item.title.lower()), item.id)
+            by_name.setdefault(_name_key(item.artist, item.title), item.id)
 
     updated: list[dict] = []
-    for entry in wishlist.all_items() or []:
-        if entry.get("status") == "acquired" or entry.get("acquired_id"):
-            continue
+    for entry in pending:
         beets_id = by_mb.get(entry.get("mb_id") or None)
         if beets_id is None and entry.get("artist") and entry.get("title"):
-            beets_id = by_name.get(
-                (entry["artist"].lower(), entry["title"].lower()))
+            beets_id = by_name.get(_name_key(entry["artist"], entry["title"]))
         if beets_id is not None:
             wishlist.update_item(
                 entry["id"], {"status": "acquired", "acquired_id": beets_id})
