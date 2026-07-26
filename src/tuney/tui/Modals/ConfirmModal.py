@@ -103,6 +103,8 @@ class ConfirmModal(ModalScreen[bool | str]):
                 note="Fetching the full list of changes from MusicBrainz…")
         if name == "remove_wishlist_item":
             return self._describe_wishlist_item(args.get("item_id"))
+        if name == "remove_wishlist_items":
+            return self._describe_wishlist_items(list(args.get("item_ids") or []))
         if name == "clear_wishlist":
             return self._describe_clear_wishlist()
         return None
@@ -317,7 +319,8 @@ class ConfirmModal(ModalScreen[bool | str]):
     def _wishlist_fields(self, item_id) -> tuple[str, str | None, str | None, str | None]:
         """(title, artist, album, status) for a wishlist id, with fallbacks."""
         try:
-            item = self._wishlist().get_item(item_id)
+            with self._wishlist() as wishlist:
+                item = wishlist.get_item(item_id)
         except Exception:
             item = None
         if not item:
@@ -348,9 +351,31 @@ class ConfirmModal(ModalScreen[bool | str]):
                     "library or on disk is affected.")
         return text
 
+    def _describe_wishlist_items(self, item_ids: list) -> Text:
+        count = len(item_ids)
+        word = "item" if count == 1 else "items"
+        text = Text()
+        text.append(f"Tuney would like to remove these {count} {word} from your "
+                    "wishlist:\n\n")
+        for item_id in item_ids:
+            title, artist, _album, status = self._wishlist_fields(item_id)
+            text.append("  • ")
+            text.append(title, style=self.TITLE_STYLE)
+            if artist:
+                text.append(f" by {artist}")
+            if status:
+                text.append(" (")
+                text.append(status, style=self.STATUS_STYLE)
+                text.append(")")
+            text.append("\n")
+        text.append("\nThis only changes your wishlist — nothing in your music "
+                    "library or on disk is affected.")
+        return text
+
     def _describe_clear_wishlist(self) -> Text:
         try:
-            items = list(self._wishlist().all_items() or [])
+            with self._wishlist() as wishlist:
+                items = list(wishlist.all_items() or [])
         except Exception:
             items = None
         text = Text()

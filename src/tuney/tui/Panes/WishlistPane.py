@@ -86,26 +86,50 @@ class WishlistPane(Pane):
         table.cursor_type = "row"
         self._build_columns()
         self.border_subtitle = "loading…"
-        self.reload()          # instant: just reads and shows the rows
-        self.reconcile()       # background: detect acquisitions, refresh if any
+        # reload reads and shows the rows, then kicks off reconcile itself. The
+        # two must not run at once: reconcile writes and, under SQLite's default
+        # rollback journal, a writer blocks readers — running them concurrently
+        # made the initial read wait on (or fail with) "database is locked",
+        # which left the pane stuck on "loading…".
+        self.reload()
         self.call_after_refresh(self._fit_columns)
 
     def focus_pane(self) -> None:
         self.query_one(DataTable).focus()
 
     @work(thread=True, exclusive=True)
-    def reload(self) -> None:
+    def reload(self, reconcile: bool = True) -> None:
         if not self.is_mounted:
             return
-        self._show(Wishlist(library.DB).all_items() or [])
+        try:
+            with Wishlist(library.DB) as wishlist:
+                items = wishlist.all_items() or []
+        except Exception as error:
+            # Don't leave the pane hanging on "loading…" — surface the failure
+            # and let the next add/edit/delete (or reopening the pane) retry.
+            self.app.call_from_thread(self._show_error, error)
+            return
+        self._show(items)
+        if reconcile:
+            self.reconcile()
 
     @work(thread=True, exclusive=True, group="wishlist-reconcile")
     def reconcile(self) -> None:
         if not self.is_mounted:
             return
-        wishlist = Wishlist(library.DB)
-        if library.reconcile_wishlist(wishlist):
-            self._show(wishlist.all_items() or [])
+        try:
+            with Wishlist(library.DB) as wishlist:
+                if library.reconcile_wishlist(wishlist):
+                    self._show(wishlist.all_items() or [])
+        except Exception:
+            # Reconcile is best-effort background work — acquisitions just won't
+            # be auto-detected this pass. The rows reload already showed stand.
+            pass
+
+    def _show_error(self, error: Exception) -> None:
+        """Report a failed load on the main thread instead of hanging."""
+        self.border_subtitle = "couldn't load wishlist"
+        self.notify(f"Couldn't load the wishlist: {error}", severity="error")
 
     def _show(self, items: list[dict]) -> None:
         """Apply a freshly read row set on the main thread, skipping the
@@ -274,11 +298,13 @@ class WishlistPane(Pane):
         if not (0 <= row < len(self._visible)):
             return
         item = self._visible[row]
-        Wishlist(library.DB).remove_item(item["id"])
+        with Wishlist(library.DB) as wishlist:
+            wishlist.remove_item(item["id"])
         label = (f"{item.get('artist', '')} - {item.get('title', '')}"
                  .strip(" -") or f"item {item['id']}")
         self.notify(f"Removed “{label}” from the wishlist.")
-        self.reload()
+        # Nothing new can have been acquired by a removal — skip the reconcile scan.
+        self.reload(reconcile=False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "add-item":
