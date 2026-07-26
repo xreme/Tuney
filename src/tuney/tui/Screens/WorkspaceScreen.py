@@ -11,7 +11,8 @@ from tuney.tui import layout
 from tuney.tui.layout import PaneLeaf, Split
 from tuney.tui.Modals import ScanModal
 from tuney.tui.Modals.PaneChooserModal import PaneChooserModal
-from tuney.tui.Panes import PANE_TYPES, Pane, ChatPane, CollectionPane, StatsBar, pane_names
+from tuney.tui.Panes import (
+    PANE_TYPES, Pane, CollectionPane, StatsBar, WishlistPane, pane_names)
 
 
 class WorkspaceScreen(Screen):
@@ -80,6 +81,9 @@ class WorkspaceScreen(Screen):
         self.query_one(StatsBar).refresh_stats()
         for pane in self.query(CollectionPane):
             pane.reload()
+        for pane in self.query(WishlistPane):
+            pane.reload()
+            pane.reconcile()
 
     # ---- tree → widgets ----------------------------------------------------
 
@@ -202,11 +206,15 @@ class WorkspaceScreen(Screen):
         self._save_layout()
         self.call_after_refresh(self._focus_leaf, new_leaf)
 
+    # Panes that may exist only once in the workspace: a second chat pane would
+    # share the same agent conversation/transcript, and a second wishlist pane
+    # is redundant (and both would fight over the same wishlist DB from
+    # different threads).
+    _SINGLETON_PANES = {"chat", "wishlist"}
+
     def _allow_pane(self, choice: str) -> bool:
-        # One chat pane at most: every chat pane would share the same agent
-        # conversation and transcript.
-        if choice == "chat" and self.query(ChatPane):
-            self.notify("Only one chat pane at a time.", severity="warning")
+        if choice in self._SINGLETON_PANES and self.query(PANE_TYPES[choice]):
+            self.notify(f"Only one {choice} pane at a time.", severity="warning")
             return False
         return True
 

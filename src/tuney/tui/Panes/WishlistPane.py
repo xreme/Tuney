@@ -1,0 +1,320 @@
+from textual import work
+from textual.app import ComposeResult
+from textual.containers import Horizontal
+from textual.widgets import Button, DataTable, Input
+
+from tuney import library
+from tuney.wishlist import Wishlist
+from tuney.tui.Modals import (
+    AddWishlistItemModal, WishlistDetailModal, WishlistEditModal)
+from .base import Pane
+
+
+class WishlistPane(Pane):
+    """Browse and filter the wishlist — records the user wants but doesn't
+    own yet. Rows are plain dicts from the wishlist store (not beets items),
+    so cells read `item["field"]`."""
+
+    PANE_NAME = "Wishlist"
+
+    DEFAULT_CSS = """
+    WishlistPane #wishlist-toolbar {
+        dock: top;
+        height: auto;
+    }
+    WishlistPane #filter {
+        width: 1fr;
+        border: tall $accent;
+    }
+    WishlistPane #add-item {
+        width: auto;
+        height: 3;
+        margin-left: 1;
+    }
+    WishlistPane DataTable {
+        height: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "clear_filter", "Clear filter"),
+        ("/", "find", "Filter"),
+        ("a", "add_item", "Add"),
+        ("e", "edit_item", "Edit"),
+        ("d", "delete_item", "Delete"),
+    ]
+
+    # (label, dict key) for each column, in display order. A wishlist entry is
+    # just a song, so we keep it minimal.
+    COLUMNS = [
+        ("Artist", "artist"),
+        ("Title", "title"),
+        ("Album", "album"),
+        ("Status", "status"),
+        ("ID", "id"),
+    ]
+
+    # Fixed pixel widths for the narrow columns; the text columns (everything
+    # not listed here) share the remaining width evenly.
+    FIXED_WIDTHS = {"status": 10, "id": 6}
+    MIN_TEXT_WIDTH = 8
+
+    # Rows go into the table in slices this big, yielding to the event loop
+    # between slices so a large wishlist doesn't freeze the app while it fills.
+    ROW_CHUNK = 500
+    # Refilter only once typing pauses; each pass rebuilds the whole table.
+    FILTER_DEBOUNCE = 0.2
+
+    def __init__(self, leaf=None) -> None:
+        super().__init__(leaf)
+        self._items: list[dict] = []
+        self._visible: list[dict] = []
+        self._sort_field = None
+        self._sort_reverse = False
+        self._populate_gen = 0
+        self._filter_timer = None
+        self._loaded = False
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="wishlist-toolbar"):
+            yield Input(placeholder="Filter by artist, title or album…", id="filter")
+            yield Button("Add", id="add-item", variant="primary")
+        yield DataTable()
+
+    def on_mount(self) -> None:
+        table = self.query_one(DataTable)
+        table.cursor_type = "row"
+        self._build_columns()
+        self.border_subtitle = "loading…"
+        # reload reads and shows the rows, then kicks off reconcile itself. The
+        # two must not run at once: reconcile writes and, under SQLite's default
+        # rollback journal, a writer blocks readers — running them concurrently
+        # made the initial read wait on (or fail with) "database is locked",
+        # which left the pane stuck on "loading…".
+        self.reload()
+        self.call_after_refresh(self._fit_columns)
+
+    def focus_pane(self) -> None:
+        self.query_one(DataTable).focus()
+
+    @work(thread=True, exclusive=True)
+    def reload(self, reconcile: bool = True) -> None:
+        if not self.is_mounted:
+            return
+        try:
+            with Wishlist(library.DB) as wishlist:
+                items = wishlist.all_items() or []
+        except Exception as error:
+            # Don't leave the pane hanging on "loading…" — surface the failure
+            # and let the next add/edit/delete (or reopening the pane) retry.
+            self.app.call_from_thread(self._show_error, error)
+            return
+        self._show(items)
+        if reconcile:
+            self.reconcile()
+
+    @work(thread=True, exclusive=True, group="wishlist-reconcile")
+    def reconcile(self) -> None:
+        if not self.is_mounted:
+            return
+        try:
+            with Wishlist(library.DB) as wishlist:
+                if library.reconcile_wishlist(wishlist):
+                    self._show(wishlist.all_items() or [])
+        except Exception:
+            # Reconcile is best-effort background work — acquisitions just won't
+            # be auto-detected this pass. The rows reload already showed stand.
+            pass
+
+    def _show_error(self, error: Exception) -> None:
+        """Report a failed load on the main thread instead of hanging."""
+        self.border_subtitle = "couldn't load wishlist"
+        self.notify(f"Couldn't load the wishlist: {error}", severity="error")
+
+    def _show(self, items: list[dict]) -> None:
+        """Apply a freshly read row set on the main thread, skipping the
+        refresh when nothing visible changed (keeps cursor/scroll)."""
+        if self._loaded and self._fingerprint(items) == self._fingerprint(self._items):
+            return
+        self.app.call_from_thread(self._apply_items, items)
+
+    def _apply_items(self, items: list[dict]) -> None:
+        self._items = items
+        self._loaded = True
+        self._refresh_rows()
+
+    def _fingerprint(self, items: list[dict]) -> list[tuple]:
+        return [tuple(item.items()) for item in items]
+
+    def on_resize(self) -> None:
+        self._fit_columns()
+
+    def _build_columns(self) -> None:
+        """(Re)create the columns, marking the sorted one with an arrow."""
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        self._text_keys = []
+        for label, field in self.COLUMNS:
+            if field == self._sort_field:
+                label += " ▼" if self._sort_reverse else " ▲"
+            if field in self.FIXED_WIDTHS:
+                table.add_column(label, width=self.FIXED_WIDTHS[field])
+            else:
+                self._text_keys.append(table.add_column(label))
+
+    def _cell(self, item: dict, field: str):
+        """Display value for one cell, with fallbacks for missing metadata."""
+        value = item.get(field)
+        if field in ("artist", "album") and not value:
+            return "Unknown"
+        if field == "title" and not value:
+            return "Untitled"
+        if value is None:
+            return ""
+        return value
+
+    def _visible_items(self) -> list[dict]:
+        items = self._items
+        query = self.query_one("#filter", Input).value.strip().lower()
+        if query:
+            # Every word must appear somewhere in the row's text.
+            def matches(item):
+                haystack = " ".join(
+                    str(self._cell(item, field)) for _, field in self.COLUMNS
+                ).lower()
+                return all(word in haystack for word in query.split())
+            items = [item for item in items if matches(item)]
+
+        if self._sort_field:
+            def sort_key(item):
+                value = item.get(self._sort_field)
+                missing = value is None or value == ""
+                if isinstance(value, str):
+                    value = value.lower()
+                # (missing-flag, value): missing rows sort together and last,
+                # and equal flags only ever compare same-typed values.
+                return (missing, value if not missing else "")
+            items = sorted(items, key=sort_key, reverse=self._sort_reverse)
+        return items
+
+    def _refresh_rows(self) -> None:
+        table = self.query_one(DataTable)
+        table.clear()
+        items = self._visible_items()
+        self._visible = items          # row index -> item, for row selection
+        if len(items) == len(self._items):
+            self.border_subtitle = f"{len(self._items)} items"
+        else:
+            self.border_subtitle = f"{len(items)} of {len(self._items)} items"
+        self._populate_gen += 1
+        self._add_rows_from(self._populate_gen, 0)
+
+    def _add_rows_from(self, generation: int, start: int) -> None:
+        """Add one chunk of rows and reschedule for the rest, so the screen
+        paints and keys keep working while a big table fills in. A newer
+        refresh bumps the generation, cancelling any population in flight."""
+        if generation != self._populate_gen or not self.is_mounted:
+            return
+        table = self.query_one(DataTable)
+        for item in self._visible[start:start + self.ROW_CHUNK]:
+            table.add_row(*(self._cell(item, field) for _, field in self.COLUMNS))
+        if start + self.ROW_CHUNK < len(self._visible):
+            self.call_after_refresh(
+                self._add_rows_from, generation, start + self.ROW_CHUNK)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if self._filter_timer is not None:
+            self._filter_timer.stop()
+        self._filter_timer = self.set_timer(self.FILTER_DEBOUNCE, self._refresh_rows)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.query_one(DataTable).focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if 0 <= event.cursor_row < len(self._visible):
+            self.app.push_screen(WishlistDetailModal(self._visible[event.cursor_row]))
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        field = self.COLUMNS[event.column_index][1]
+        if field == self._sort_field:
+            if self._sort_reverse:
+                # Third click clears the sort back to wishlist order.
+                self._sort_field = None
+                self._sort_reverse = False
+            else:
+                self._sort_reverse = True
+        else:
+            self._sort_field = field
+            self._sort_reverse = False
+        self._build_columns()
+        self._refresh_rows()
+        self._fit_columns()
+
+    def _fit_columns(self) -> None:
+        """Give the text columns equal widths that fill the visible table."""
+        table = self.query_one(DataTable)
+        pad = table.cell_padding * 2                 # padding per column (both sides)
+
+        # Space to render into, minus a little slack for the scrollbar/borders.
+        available = table.size.width - 2
+        if available <= 0 or not self._text_keys:
+            return
+
+        # Render width consumed by the fixed columns (value + padding).
+        fixed = sum(width + pad for width in self.FIXED_WIDTHS.values())
+        # Remaining space, split evenly across the text columns' content.
+        each = max(self.MIN_TEXT_WIDTH,
+                   (available - fixed) // len(self._text_keys) - pad)
+
+        for key in self._text_keys:
+            column = table.columns[key]
+            column.auto_width = False
+            column.width = each
+
+        table._require_update_dimensions = True
+
+    def action_clear_filter(self) -> None:
+        filter_input = self.query_one("#filter", Input)
+        if filter_input.value:
+            filter_input.value = ""
+        self.query_one(DataTable).focus()
+
+    def action_find(self) -> None:
+        self.query_one("#filter", Input).focus()
+
+    def action_add_item(self) -> None:
+        self.app.push_screen(AddWishlistItemModal(), self._on_add_closed)
+
+    def action_edit_item(self) -> None:
+        """Edit the row under the cursor."""
+        row = self.query_one(DataTable).cursor_row
+        if 0 <= row < len(self._visible):
+            self.app.push_screen(
+                WishlistEditModal(self._visible[row]), self._on_edit_closed)
+
+    def action_delete_item(self) -> None:
+        """Delete the row under the cursor from the wishlist entirely."""
+        row = self.query_one(DataTable).cursor_row
+        if not (0 <= row < len(self._visible)):
+            return
+        item = self._visible[row]
+        with Wishlist(library.DB) as wishlist:
+            wishlist.remove_item(item["id"])
+        label = (f"{item.get('artist', '')} - {item.get('title', '')}"
+                 .strip(" -") or f"item {item['id']}")
+        self.notify(f"Removed “{label}” from the wishlist.")
+        # Nothing new can have been acquired by a removal — skip the reconcile scan.
+        self.reload(reconcile=False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "add-item":
+            self.action_add_item()
+
+    def _on_add_closed(self, result) -> None:
+        """A truthy result means an item was added — reload to show it."""
+        if result:
+            self.reload()
+
+    def _on_edit_closed(self, result) -> None:
+        if result:
+            self.reload()
