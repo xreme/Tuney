@@ -37,6 +37,20 @@ class SettingsPane(Pane):
                 yield Button("Save to keychain", id="key-save", variant="primary")
                 yield Button("Remove from keychain", id="key-remove", variant="error")
 
+            yield Static("Last.fm API key", classes="section")
+            yield Static(
+                "Optional. Adds Last.fm alongside MusicBrainz when searching "
+                "for music to wishlist, and as a cover-art source. Get one at "
+                "https://www.last.fm/api/account/create",
+                classes="hint",
+            )
+            yield Static(id="lastfm-status", classes="hint")
+            yield Input(placeholder="Last.fm API key", password=True,
+                        id="lastfm-input")
+            with Horizontal():
+                yield Button("Save to keychain", id="lastfm-save", variant="primary")
+                yield Button("Remove from keychain", id="lastfm-remove", variant="error")
+
             yield Static("Chat model", classes="section")
             yield Static(
                 "Any OpenRouter model id. Takes effect on your next message.",
@@ -68,6 +82,7 @@ class SettingsPane(Pane):
         self.query_one(f"#detail-{cfg.chat_detail}", RadioButton).value = True
         self.query_one(f"#autotag-{cfg.import_autotag}", RadioButton).value = True
         self._refresh_key_status()
+        self._refresh_lastfm_status()
         self.query_one("#about", Static).update(
             f"Library database: {library.DB}\n"
             f"Settings file:    {config.config_file}\n"
@@ -108,6 +123,20 @@ class SettingsPane(Pane):
             status = "No key configured — the chat assistant won't work without one."
         self.query_one("#key-status", Static).update(status)
 
+    def _refresh_lastfm_status(self) -> None:
+        env_key = credentials.env_lastfm_key()
+        stored = credentials.keychain_lastfm_key()
+        if env_key:
+            status = ("Using the key from the LASTFM_API_KEY environment "
+                      "variable; it overrides the keychain entry.")
+            if stored:
+                status += f"\nA key is also saved in the keychain (…{stored[-4:]})."
+        elif stored:
+            status = f"Using the key saved in the system keychain (…{stored[-4:]})."
+        else:
+            status = ("No key configured — searches use MusicBrainz only.")
+        self.query_one("#lastfm-status", Static).update(status)
+
     # ---- actions -----------------------------------------------------------
 
     @on(RadioSet.Changed, "#Autotag-set")
@@ -135,6 +164,10 @@ class SettingsPane(Pane):
             self._save_key()
         elif event.button.id == "key-remove":
             self._remove_key()
+        elif event.button.id == "lastfm-save":
+            self._save_lastfm_key()
+        elif event.button.id == "lastfm-remove":
+            self._remove_lastfm_key()
         elif event.button.id == "model-save":
             self._save_model(self.query_one("#model-input", Input).value)
         elif event.button.id == "model-reset":
@@ -165,6 +198,32 @@ class SettingsPane(Pane):
         else:
             self.notify("No key stored in the keychain.", severity="warning")
         self._refresh_key_status()
+
+    def _save_lastfm_key(self) -> None:
+        key_input = self.query_one("#lastfm-input", Input)
+        value = key_input.value.strip()
+        if not value:
+            self.notify("Enter a key first.", severity="warning")
+            return
+        credentials.save_lastfm_key(value)
+        key_input.value = ""
+        self._refresh_lastfm_status()
+        if credentials.env_lastfm_key():
+            self.notify(
+                "Saved, but LASTFM_API_KEY is set in the environment and "
+                "takes precedence.",
+                severity="warning",
+            )
+        else:
+            self.notify("Last.fm API key saved to the keychain.")
+
+    def _remove_lastfm_key(self) -> None:
+        if credentials.delete_lastfm_key():
+            self.notify("Last.fm API key removed from the keychain.")
+        else:
+            self.notify("No Last.fm key stored in the keychain.",
+                        severity="warning")
+        self._refresh_lastfm_status()
 
     def _save_model(self, value: str) -> None:
         value = value.strip()
