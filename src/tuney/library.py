@@ -5,7 +5,7 @@ import beets
 from beets.library import Library
 from platformdirs import PlatformDirs
 
-from tuney import config
+from tuney import config, lastfm
 
 beets.config.read()
 CONFIG = Path("config/beets.yaml")
@@ -55,6 +55,7 @@ def _track_info_dict(info, score=None):
     """Framework-agnostic view of a beets TrackInfo (a MusicBrainz recording),
     for callers that don't have (or want) a beets Item — e.g. the wishlist."""
     data = {
+        "source": MUSICBRAINZ,
         "mb_id": getattr(info, "track_id", "") or "",
         "artist": getattr(info, "artist", "") or "",
         "title": getattr(info, "title", "") or "",
@@ -64,6 +65,9 @@ def _track_info_dict(info, score=None):
     if score is not None:
         data["score"] = score
     return data
+
+
+MUSICBRAINZ = "musicbrainz"
 
 
 def musicbrainz_candidates(artist: str = "", title: str = "", album: str = "",
@@ -142,6 +146,7 @@ def musicbrainz_albums(artist: str = "", album: str = "",
             "year": year,
         } for track in (info.tracks or [])]
         albums.append({
+            "source": MUSICBRAINZ,
             "mb_id": getattr(info, "album_id", "") or "",
             "album": info.album or "",
             "artist": info.artist or "",
@@ -152,6 +157,147 @@ def musicbrainz_albums(artist: str = "", album: str = "",
         if len(albums) >= limit:
             break
     return albums
+
+# --- merged metadata search -------------------------------------------------
+#
+# One list of candidates from every source, not one list per source. The two
+# have complementary blind spots — MusicBrainz has the release ids and the
+# authoritative tracklists but only for what its editors catalogued; Last.fm
+# has the long tail plus tags and listener counts — so a caller that only
+# searched one of them would keep missing records the other could see.
+#
+# Every entry carries `source`; Last.fm entries additionally carry
+# listeners/playcount/tags/url/image, which are absent (not empty) on
+# MusicBrainz entries.
+
+_SOURCE_ORDER = {MUSICBRAINZ: 0, lastfm.SOURCE: 1}
+
+
+def _norm(text: str) -> str:
+    """Casefolded, punctuation-light form used to compare names across sources
+    that all punctuate differently."""
+    return _re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _lastfm_only(entries: list[dict], primary: list[dict],
+                 fields: tuple[str, ...]) -> list[dict]:
+    """`entries` minus everything `primary` (the MusicBrainz results) already
+    covers, matching on `fields`.
+
+    Deliberately coarser than the within-source de-duplication below: the two
+    services disagree about tracklist lengths and bonus tracks often enough
+    that keying on those would leave a near-duplicate row for most albums, and
+    when both know a record the MusicBrainz row is the better one to keep — it
+    has the ids the wishlist stores.
+    """
+    known = {tuple(_norm(entry.get(field)) for field in fields)
+             for entry in primary}
+    return [entry for entry in entries
+            if tuple(_norm(entry.get(field)) for field in fields) not in known]
+
+
+def _dedupe(entries: list[dict], fields: tuple[str, ...]) -> list[dict]:
+    """First entry wins for each distinct combination of `fields`. Names are
+    compared normalized; anything else (a track count) compares as it is."""
+    def part(value):
+        return _norm(value) if isinstance(value, str) else value
+
+    seen, unique = set(), []
+    for entry in entries:
+        key = tuple(part(entry.get(field)) for field in fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
+def search_tracks(artist: str = "", title: str = "", album: str = "",
+                  limit: int = 5) -> list[dict]:
+    """Candidate recordings for one song from every metadata source, best
+    first — MusicBrainz and (when a key is configured) Last.fm, merged.
+
+    Same dicts as `musicbrainz_candidates`, plus `source` and the Last.fm-only
+    fields. A source that errors, is unconfigured or finds nothing simply
+    contributes nothing; only an empty list means nothing matched anywhere.
+    """
+    try:
+        primary = musicbrainz_candidates(artist=artist, title=title,
+                                         album=album, limit=limit)
+    except Exception:
+        primary = []
+    try:
+        extra = lastfm.search_tracks(artist=artist, title=title, limit=limit)
+    except Exception:
+        extra = []
+
+    # Same artist and title from both services is one candidate, but the same
+    # artist and title on two different albums is two — that is the choice the
+    # user is being asked to make.
+    primary = _dedupe(primary, ("artist", "title", "album"))
+    candidates = primary + _lastfm_only(extra, primary, ("artist", "title"))
+
+    wanted = _norm(title)
+
+    def rank(candidate: dict):
+        # Exact title matches first; then MusicBrainz (it scores its own
+        # matches and carries the recording id) ahead of Last.fm, whose only
+        # ordering signal is how many people listen to the track.
+        return (_norm(candidate.get("title")) != wanted,
+                _SOURCE_ORDER.get(candidate.get("source"), 9),
+                -(candidate.get("score") or 0),
+                -(candidate.get("listeners") or 0))
+
+    return sorted(candidates, key=rank)[:limit]
+
+
+def search_albums(artist: str = "", album: str = "",
+                  limit: int = 5) -> list[dict]:
+    """Candidate releases from every metadata source, best first, each with
+    its tracklist where the source provides one.
+
+    Same dicts as `musicbrainz_albums`, plus `source` and the Last.fm-only
+    fields. Last.fm entries can come back with an empty `tracks` list — use
+    `album_tracks` rather than reading `tracks` directly.
+    """
+    try:
+        primary = musicbrainz_albums(artist=artist, album=album, limit=limit)
+    except Exception:
+        primary = []
+    try:
+        extra = lastfm.search_albums(artist=artist, album=album, limit=limit)
+    except Exception:
+        extra = []
+
+    # Two pressings of one release are one row; a standard and a deluxe edition
+    # share a title but not a track count, and stay two.
+    primary = _dedupe(primary, ("artist", "album", "track_count"))
+    albums = primary + _lastfm_only(extra, primary, ("artist", "album"))
+
+    wanted = _norm(album)
+
+    def rank(entry: dict):
+        return (_norm(entry.get("album")) != wanted,
+                _SOURCE_ORDER.get(entry.get("source"), 9),
+                -(entry.get("listeners") or 0))
+
+    return sorted(albums, key=rank)[:limit]
+
+
+def album_tracks(album: dict) -> list[dict]:
+    """The tracklist of an album from `search_albums`, fetched on demand when
+    its source didn't include one. Empty when the source has no tracklist for
+    it at all."""
+    tracks = album.get("tracks") or []
+    if tracks or album.get("source") != lastfm.SOURCE:
+        return tracks
+    try:
+        return lastfm.album_tracks(album.get("artist", ""),
+                                   album.get("album", ""),
+                                   album.get("mb_id", ""))
+    except Exception:
+        return []
+
 
 def preview_track_match(item, recording_id: str) -> list[tuple[str, object, object]]:
     """The field changes `apply_track_match` would make: (field, old, new)

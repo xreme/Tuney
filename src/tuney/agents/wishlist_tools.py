@@ -2,7 +2,7 @@ import json
 
 from langchain.tools import tool
 
-from tuney import library
+from tuney import lastfm, library
 from tuney.wishlist import Wishlist
 
 
@@ -107,8 +107,9 @@ def add_wishlist_item(artist: str, title: str, album: str = "",
 
     Pass at least an artist and title. `mb_id` links the item to a specific
     MusicBrainz recording — when the user wants an exact release, first call
-    `search_musicbrainz` to get candidates, pick the right one, and pass its
-    `mb_id` here so the item is unambiguous. `priority` is a number (higher =
+    `search_music` to get candidates, pick the right one, and pass its `mb_id`
+    here so the item is unambiguous (leave it empty for a Last.fm result, which
+    has no recording id). `priority` is a number (higher =
     more wanted); `status` defaults to "wanted". This is additive and needs no
     confirmation. To add several tracks at once (e.g. a whole album), use
     `add_wishlist_items` instead of calling this repeatedly.
@@ -133,9 +134,9 @@ def add_wishlist_items(items: list[dict]):
     `items` is a list of objects, each with at least `artist` and `title` and
     optionally `album`, `year`, `mb_id`, `notes`, `priority`, and `status`
     (unknown keys are ignored; `status` defaults to "wanted"). When wishlisting
-    a MusicBrainz album, pass the chosen release's `tracks` entries straight
-    through — each already carries its own `mb_id`, `title`, `album`, and
-    `year`. This is additive and needs no confirmation.
+    an album from `search_music`, pass the chosen release's `tracks` entries
+    straight through — each already carries its own `mb_id` (empty for a
+    Last.fm album), `title`, `album`, and `year`. This is additive and needs no confirmation.
 
     Returns a JSON array of the created items, each a full object with its new
     `id`, `artist`, `title`, and `album`. This array is the ground truth of
@@ -153,36 +154,91 @@ def add_wishlist_items(items: list[dict]):
 
 
 @tool
-def search_musicbrainz(artist: str = "", title: str = "", album: str = "",
-                       kind: str = "single"):
-    """Search MusicBrainz for music the user might want to wishlist — either
-    singles (individual recordings) or whole albums (releases). Read-only;
-    nothing is added.
+def search_music(artist: str = "", title: str = "", album: str = "",
+                 kind: str = "single"):
+    """Search the music metadata sources for music the user might want to
+    wishlist — either singles (individual recordings) or whole albums
+    (releases). Read-only; nothing is added.
+
+    MusicBrainz and Last.fm are searched together and come back as ONE ranked
+    list, best first — there is no per-source call to make and no reason to
+    search twice. Every result carries `source`:
+    - "musicbrainz" — carries `mb_id`, the id the wishlist stores, and for
+      albums an authoritative tracklist. Singles also carry `score` (0..1,
+      1.0 = a perfect match).
+    - "lastfm" — carries `listeners`, `playcount` and `tags` (listener-supplied
+      genre/mood), and covers releases MusicBrainz never catalogued. Its
+      `mb_id` is usually empty; that is normal, so add the item without one
+      rather than inventing or borrowing an id.
 
     kind="single" (the default): search recordings by artist/title (pass an
-    album too to disambiguate). Returns up to 5 candidates, best match first:
-        {mb_id, artist, title, album, year, score}   (score 0..1, 1.0 = perfect)
+    album too to disambiguate). Returns up to 5 candidates:
+        {source, mb_id, artist, title, album, year, score?, listeners?,
+         playcount?, tags?}
     Pick the one matching the user's intent and pass its `mb_id` to
     `add_wishlist_item` so the item points at an exact recording.
 
     kind="album": search releases by artist/album. Returns up to 5 albums, each
-    with its full tracklist:
-        {mb_id (release id), album, artist, year, track_count,
-         tracks: [{mb_id (recording id), artist, title, album, year}, ...]}
+    with its tracklist:
+        {source, mb_id (release id), album, artist, year, track_count,
+         tracks: [{mb_id (recording id), artist, title, album, year}, ...],
+         listeners?, playcount?, tags?}
     The wishlist stores individual songs, not albums — so to wishlist a whole
-    album, call `add_wishlist_item` once per entry in its `tracks` list; to
-    wishlist one song from it, add just that track. Album matches carry no
-    score (MusicBrainz's own ranking is used).
+    album, pass its whole `tracks` list to `add_wishlist_items` in one call; to
+    wishlist one song from it, add just that track. Albums carry no score
+    (each source's own ranking is used). A `track_count` of 0 means that source
+    has no tracklist for the release: pick another result for the same album
+    rather than adding songs you filled in yourself.
 
-    An empty list means nothing matched — retry with different or fuller
-    spelling before giving up.
+    Last.fm is optional: with no API key configured the results are MusicBrainz
+    only, which is not an error. An empty list means nothing matched on any
+    source — retry with different or fuller spelling before giving up.
     """
     if kind.strip().lower().startswith("album"):
-        return json.dumps(
-            library.musicbrainz_albums(artist=artist, album=album, limit=5))
+        albums = library.search_albums(artist=artist, album=album, limit=5)
+        for entry in albums:
+            # Fill in any tracklist the source didn't ship with its search
+            # results, so the model always sees the songs it needs to add.
+            entry["tracks"] = library.album_tracks(entry)
+            entry["track_count"] = len(entry["tracks"])
+        return json.dumps(albums)
     return json.dumps(
-        library.musicbrainz_candidates(
-            artist=artist, title=title, album=album, limit=5))
+        library.search_tracks(artist=artist, title=title, album=album, limit=5))
+
+
+@tool
+def music_information(artist: str, title: str = "", album: str = ""):
+    """Look up what Last.fm knows about one record: how many people listen to
+    it (`listeners`), how often it is played (`playcount`), the tags listeners
+    give it (`tags` — the closest thing to a genre), a short description
+    (`summary`), a cover image URL (`image`), and for an album its tracklist.
+    Read-only; nothing is added or changed.
+
+    Pass `artist` plus EITHER `title` (for a song) or `album` (for a release).
+    Use it for "what genre is this", "how popular is it", "what's on this
+    album", or to tell an original apart from a cover or a soundalike before
+    wishlisting it — none of that is in the wishlist or in MusicBrainz results.
+
+    Returns a JSON object, or a plain sentence when Last.fm has no API key
+    configured or nothing on the record. Both are real answers: report them as
+    they are and never substitute listener counts, tags, or a description from
+    your own memory.
+    """
+    if not lastfm.available():
+        return ("No Last.fm API key is configured, so listener counts, tags "
+                "and descriptions are unavailable. The user can add a key in "
+                "Settings or as LASTFM_API_KEY.")
+    if not (title or album):
+        return "Pass a title (for a song) or an album (for a release)."
+    try:
+        info = (lastfm.track_info(artist, title) if title
+                else lastfm.album_info(artist, album))
+    except lastfm.LastfmError as error:
+        return f"The Last.fm lookup failed: {error}"
+    if not info:
+        return (f"Last.fm has nothing on {title or album} by {artist} — the "
+                "spelling may differ, or it may not be indexed.")
+    return json.dumps(info)
 
 
 @tool
