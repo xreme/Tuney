@@ -97,15 +97,22 @@ collection_cleanup_agent = Agent (
     middleware=[
         HumanInTheLoopMiddleware(
             interrupt_on= {
-                "remove_item": {"allowed_decisions": ["approve", "edit","reject"]},
-                "remove_items": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "remove_album": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "retag_collection": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "apply_track_tags": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "set_track_tags": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "fetch_album_art": {"allowed_decisions": ["approve", "edit", "reject"]},
+                "remove_item": {"allowed_decisions": ["approve", "edit","reject"],
+                                "description": "Remove a track requires approval"},
+                "remove_items": {"allowed_decisions": ["approve", "edit", "reject"],
+                                 "description": "Remove tracks requires approval"},
+                "remove_album": {"allowed_decisions": ["approve", "edit", "reject"],
+                                 "description": "Remove an album requires approval"},
+                "retag_collection": {"allowed_decisions": ["approve", "edit", "reject"],
+                                     "description": "Retag the collection requires approval"},
+                "apply_track_tags": {"allowed_decisions": ["approve", "edit", "reject"],
+                                     "description": "Apply track tags requires approval"},
+                "set_track_tags": {"allowed_decisions": ["approve", "edit", "reject"],
+                                   "description": "Set track tags requires approval"},
+                "fetch_album_art": {"allowed_decisions": ["approve", "edit", "reject"],
+                                    "description": "Fetch and embed album art requires approval"},
             },
-            description_prefix="Delete Tool requires approval"
+            description_prefix="This action requires approval"
         )
     ]
 )
