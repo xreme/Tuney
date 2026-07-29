@@ -3,6 +3,7 @@ from tuney import library
 import json
 import random
 from collections import Counter
+from datetime import datetime
 from os import fsdecode
 from os.path import basename, getsize
 
@@ -10,6 +11,18 @@ from os.path import basename, getsize
 # A serialized item is ~150 tokens; anything past a few hundred items risks
 # blowing the model's context window in one tool result.
 _MAX_RESULTS = 100
+
+
+def _fmt_ts(value):
+    """A beets unix timestamp (added/mtime) as a 'YYYY-MM-DD HH:MM' string, or
+    None when it's missing or zero (beets stores an unknown time as 0)."""
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not ts:
+        return None
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
 
 
 def _searched(query: str):
@@ -36,6 +49,10 @@ def _item_dict(item):
         "genres": list(item.get("genres") or []),
         "beets_id": item.id,
         "mb_recording_id": item.mb_trackid,
+        # When the track was imported into the library and when its tags/file
+        # were last modified (beets updates mtime on every tag rewrite).
+        "imported": _fmt_ts(item.get("added")),
+        "modified": _fmt_ts(item.get("mtime")),
     }
 
 
@@ -92,8 +109,11 @@ def search_collection(query: str, max: int = 100, page: int = 1):
 
     Pass a beets query built from the query language described in the system
     prompt (e.g. `artist:radiohead year:2000..`). Returns matching items as a
-    list of JSON objects (title, album, artist, year, genres). An empty list
-    means nothing matched. Results are paginated: `max` sets the page size
+    list of JSON objects (title, album, artist, year, genres, plus `imported`
+    and `modified` dates). An empty list means nothing matched. You can also
+    filter by those dates with beets date queries — e.g. `added:2024-01..` for
+    tracks imported since Jan 2024, or `mtime:2024-06-01..` for ones edited
+    since. Results are paginated: `max` sets the page size
     (default and cap 100) and `page` selects a 1-based page; a trailing note
     gives the total count and page number when more matches remain — page
     through or narrow the query rather than re-listing large result sets.
@@ -278,6 +298,9 @@ def item_information(itemId: int):
         k: (fsdecode(v) if isinstance(v, bytes) else v)
         for k, v in dict(item).items()
     }
+    # Surface the raw added/mtime floats as readable dates alongside them.
+    item_json["imported"] = _fmt_ts(item.get("added"))
+    item_json["modified"] = _fmt_ts(item.get("mtime"))
 
     # Not item.try_filesize(): beets logs a warning for every missing file,
     # which lands on stderr and bleeds through the TUI.
@@ -496,6 +519,54 @@ def set_track_tags(item_id: int, title: str = "", artist: str = "",
                for name, value in fields.items()]
     library.set_item_fields(item, fields)
     return f"Updated track {item_id} (library entry and file tags rewritten):\n  " + "\n  ".join(changes)
+
+@tool
+def fetch_album_art(item_id: int, force: bool = False):
+    """Download cover art for a track's album and embed it into the album's
+    audio files, looked up by the track's beets_id.
+
+    Use this when the user wants to add or refresh the artwork for a track or
+    album ("add the cover art", "this album has no cover", "fix the artwork").
+    It resolves the track's album, downloads art from online sources
+    (MusicBrainz Cover Art Archive, iTunes, etc.), stores it beside the album's
+    files, and writes it into every track of the album. `force=True`
+    re-downloads even when the album already has art (use it to replace a wrong
+    or low-quality cover); by default an album that already has art is left
+    alone.
+
+    Calling this tool automatically shows the user a confirmation dialog before
+    anything is written, so do NOT ask for permission in chat first. Verify the
+    beets_id refers to the track the user means with `item_information` first.
+    Album art is fetched per ALBUM, so every track on the same album is
+    affected, not just this one.
+
+    Returns a message saying whether art was found and embedded, plus the tail
+    of the beets log.
+    """
+    item = library.get_item(item_id)
+    if item is None:
+        return f"No item found with the beets_id {item_id}"
+    if not item.album_id:
+        return (f"Track {item_id} ({item.artist} - {item.title}) isn't part of "
+                "an album in the library, so there's no album to attach art to.")
+
+    log = library.fetch_album_art(f"id:{item.album_id}", force=force, embed=True)
+    got_art = library.album_has_art(item.album_id)
+    lines = log.splitlines()
+    if len(lines) > 30:
+        lines = [f"(… {len(lines) - 30} earlier log lines omitted)"] + lines[-30:]
+    tail = "\n".join(lines).strip()
+
+    album_name = item.album or "(unknown album)"
+    if got_art:
+        head = (f"Cover art downloaded and embedded for '{album_name}' "
+                f"(album_id {item.album_id}).")
+    else:
+        head = (f"No cover art could be found for '{album_name}' "
+                f"(album_id {item.album_id}) — the album was left unchanged. "
+                "The online sources had nothing matching; a manual image may "
+                "be needed.")
+    return f"{head}\n{tail}".strip() if tail else head
 
 @tool
 def remove_item(item_id: int, delete_file: bool = False):

@@ -67,8 +67,9 @@ async def collection_cleanup(task: str) -> str:
     Use for anything that changes the library: removing tracks or albums,
     finding and clearing duplicates, fixing or repairing metadata (the
     specialist can re-run the autotagger against MusicBrainz to correct
-    tags — "retag", "fix the tags", "repair the metadata"), and general
-    library hygiene. The specialist shows the user a built-in confirmation
+    tags — "retag", "fix the tags", "repair the metadata"), downloading and
+    embedding cover art ("add the cover", "this album has no artwork"), and
+    general library hygiene. The specialist shows the user a built-in confirmation
     dialog before any removal or retag, so delegate without asking
     permission in chat first.
 
@@ -97,10 +98,16 @@ async def wishlist(task: str) -> str:
     A wishlist tracks music the user WANTS but doesn't own yet — it is
     separate from their music library. Use for anything about wishlisted
     music: listing or searching the wishlist, adding a wanted track (the
-    specialist can look it up on MusicBrainz to pin an exact release),
-    updating an item's priority/status/notes, or removing items. The
+    specialist can look it up on MusicBrainz and Last.fm to pin an exact
+    release), updating an item's priority/status/notes, or removing items. The
     specialist shows the user a built-in confirmation dialog before any
     wishlist removal, so delegate without asking permission in chat first.
+
+    It is also the specialist for facts about a record that aren't in the
+    user's files — "what genre is X", "how popular is it", "what's on that
+    album", "does that record even exist" — whether or not they own it, since
+    it looks those up rather than recalling them. Send such questions here
+    instead of answering them yourself.
 
     Note that "remove from the wishlist" only takes an item off the wishlist —
     it never removes tracks from the library or deletes files; route
@@ -108,9 +115,9 @@ async def wishlist(task: str) -> str:
 
     Write `task` as a self-contained brief with every name, spelling, id, and
     constraint the specialist needs — it cannot see the chat. Delegate a
-    MusicBrainz-matched add as ONE task ("add 'Song' by 'Artist' to the
-    wishlist, matching it on MusicBrainz") — the specialist looks up the id
-    itself; never retype or invent a MusicBrainz id in the brief.
+    matched add as ONE task ("add 'Song' by 'Artist' to the wishlist, matching
+    it against the metadata sources") — the specialist looks up the id itself;
+    never retype or invent a MusicBrainz id in the brief.
     """
     return await _delegate(wishlist_agent, task, name="Wishlist")
 

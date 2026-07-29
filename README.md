@@ -26,6 +26,18 @@ Everything else in Tuney works without one.
 
 You can also set the key with the **Settings** inside the TUI. T
 
+### Last.fm setup (optional)
+
+Searching for music to wishlist queries MusicBrainz, and queries
+[Last.fm](https://www.last.fm/api/account/create) as well when an API key is
+configured — one merged list of results, not one list per source. Last.fm
+covers releases MusicBrainz never catalogued and adds listener counts, tags and
+cover art. Without a key, searches quietly fall back to MusicBrainz alone.
+
+```bash
+LASTFM_API_KEY=...   # in .env, or save it under Settings in the TUI
+```
+
 ## How to Use
 
 ### Launch the interactive TUI
@@ -42,7 +54,7 @@ From the main menu you can:
 - **Search library** — type a query and browse matching results (Artist / Title / Album) in a table.
 - **Chat** — ask an AI assistant about your collection in plain English (see below).
 - **Scan Directory** — interactively browse your filesystem and import a folder into the library (see below).
-- **Settings** — manage the OpenRouter API key (saved to your system keychain), pick the chat model, and see where Tuney keeps its data.
+- **Settings** — manage the OpenRouter and Last.fm API keys (saved to your system keychain), pick the chat model, and see where Tuney keeps its data.
 - **Quit** — exit the application.
 
 The TUI uses your terminal's ANSI color scheme, so it matches however your
@@ -141,6 +153,7 @@ uv run tuney duplicates
 | TUI rendering                           | [Textual](https://textual.textualize.io/)                                                                  |
 | AI agent framework                      | [LangChain](https://python.langchain.com/) / LangGraph                                                     |
 | LLM access                              | [OpenRouter](https://openrouter.ai/)                                                                       |
+| Music metadata and cover art            | [MusicBrainz](https://musicbrainz.org/) / [Last.fm](https://www.last.fm/api) / iTunes / Deezer             |
 | API key storage                         | [keyring](https://github.com/jaraco/keyring) + [python-dotenv](https://github.com/theskumar/python-dotenv) |
 
 Requires **Python 3.13+**.

@@ -2,7 +2,7 @@ from tuney import config
 from tuney.agents.Agent import Agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 
-from tuney.agents.tools import remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata
+from tuney.agents.tools import remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art
 
 SYSTEM_PROMPT = """
 Agent focused on the organization and tidiness of the user's music collection
@@ -60,15 +60,34 @@ Fixing metadata — pick the right tool for the scope:
   route when it has a good match, since it fills every field consistently.
 All three repairs update the library AND rewrite the audio file's own tags.
 
-Every removal or retag tool call automatically shows the user a built-in
-confirmation dialog (with the tracks, album, and file paths) before it
+Import and edit dates:
+- Every track carries an `imported` date (when it was added to the library)
+  and a `modified` date (when its tags/file were last changed — beets bumps
+  this on every tag rewrite). They show up on search_collection and
+  item_information results. Use them for "what did I add recently?", "which
+  tracks were touched last?", or to sort/report by recency. To filter directly,
+  pass a beets date query: `added:2024-06..` (imported since June 2024) or
+  `mtime:2024-01-01..2024-06-30` (edited in that window).
+
+Cover art:
+- fetch_album_art: download cover art for a track's album and embed it into
+  the album's audio files. Use it when the user wants to add, replace, or fix
+  artwork ("add the cover", "this album has no art", "the cover is wrong").
+  Look up the track with item_information/search_collection to get its
+  beets_id, then pass that id — art is fetched per ALBUM, so every track on
+  that album gets it. Pass force=True only to replace art an album already has
+  (e.g. a wrong or low-res cover); otherwise albums that already have art are
+  left alone. If the sources have no match it reports that and changes nothing.
+
+Every removal, retag, or art-fetch tool call automatically shows the user a
+built-in confirmation dialog (with the tracks, album, and file paths) before it
 executes, so do NOT ask for permission in chat first — just call the tool
 with the right arguments and let the dialog do the confirming. A rejected
 call means the user said no — accept that and don't retry it unchanged.
 """
 
 _TOOLS = [
-    remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata
+    remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art
 ]
 
 collection_cleanup_agent = Agent (
@@ -78,14 +97,22 @@ collection_cleanup_agent = Agent (
     middleware=[
         HumanInTheLoopMiddleware(
             interrupt_on= {
-                "remove_item": {"allowed_decisions": ["approve", "edit","reject"]},
-                "remove_items": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "remove_album": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "retag_collection": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "apply_track_tags": {"allowed_decisions": ["approve", "edit", "reject"]},
-                "set_track_tags": {"allowed_decisions": ["approve", "edit", "reject"]},
+                "remove_item": {"allowed_decisions": ["approve", "edit","reject"],
+                                "description": "Remove a track requires approval"},
+                "remove_items": {"allowed_decisions": ["approve", "edit", "reject"],
+                                 "description": "Remove tracks requires approval"},
+                "remove_album": {"allowed_decisions": ["approve", "edit", "reject"],
+                                 "description": "Remove an album requires approval"},
+                "retag_collection": {"allowed_decisions": ["approve", "edit", "reject"],
+                                     "description": "Retag the collection requires approval"},
+                "apply_track_tags": {"allowed_decisions": ["approve", "edit", "reject"],
+                                     "description": "Apply track tags requires approval"},
+                "set_track_tags": {"allowed_decisions": ["approve", "edit", "reject"],
+                                   "description": "Set track tags requires approval"},
+                "fetch_album_art": {"allowed_decisions": ["approve", "edit", "reject"],
+                                    "description": "Fetch and embed album art requires approval"},
             },
-            description_prefix="Delete Tool requires approval"
+            description_prefix="This action requires approval"
         )
     ]
 )

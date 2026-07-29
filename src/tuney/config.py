@@ -27,7 +27,7 @@ class ImportAutotagMode(StrEnum):
     SAFE = 'safe'    # autotag; skip albums without a confident match
     KEEP = 'keep'    # autotag; import uncertain albums with their existing tags
 
-DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5"
+DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash"
 
 @dataclass
 class Config:

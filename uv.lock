@@ -1629,6 +1629,7 @@ dependencies = [
     { name = "pillow" },
     { name = "platformdirs" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "textual" },
     { name = "typer" },
 ]
@@ -1649,6 +1650,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "platformdirs", specifier = ">=4.10.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "requests", specifier = ">=2.32.0" },
     { name = "textual", specifier = ">=8.2.7" },
     { name = "typer", specifier = ">=0.26.7" },
 ]

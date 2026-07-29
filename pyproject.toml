@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=12.3.0",
     "platformdirs>=4.10.0",
     "python-dotenv>=1.2.2",
+    "requests>=2.32.0",
     "textual>=8.2.7",
     "typer>=0.26.7",
 ]

@@ -36,6 +36,21 @@ these rules:
   Regex matches are case-sensitive — prefix with `(?i)` to ignore case.
 - Numeric/date ranges use `..`: `year:1990..1999`, `year:2000..`, `year:..1979`.
 
+Time added / edited — every track records when it was imported (`added`) and
+when its tags/file were last changed (`mtime`); these come back on results as
+`imported` and `modified`. Both are queryable and sortable through the normal
+query, so you do NOT need a special tool:
+- Filter by date range like any other field: `added:2024-06-01..` (imported on
+  or after that date), `added:2024-01..2024-06` (imported in that window),
+  `mtime:2025-01-01..` (edited since). Dates accept year, year-month, or full
+  year-month-day. Use the injected current date above to resolve relative
+  requests ("added this week", "imported last month").
+- Sort by recency with a trailing sort token: `added-` = newest imports first,
+  `added+` = oldest first (likewise `mtime-` / `mtime+` for last-edited). Sort
+  tokens combine with filters, e.g. `artist:radiohead added-`.
+So "what did I add recently?" -> `added-`; "songs imported since June" ->
+`added:2024-06..`; "tracks I edited most recently" -> `mtime-`.
+
 Examples:
 - "beatles songs from the 60s" -> `artist:beatles year:1960..1969`
 - "rock or metal tracks" -> `genres:rock , genres:metal`

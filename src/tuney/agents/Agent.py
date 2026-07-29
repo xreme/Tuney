@@ -14,6 +14,18 @@ _REQUEST_TIMEOUT_MS = 60_000
 
 _STREAM_INACTIVITY_TIMEOUT = 120.0
 
+# Sentinel returned by _anext_or_done when the stream is exhausted, so the
+# awaitable can be wrapped in a task without a StopAsyncIteration leaking out
+# (a Task that raises StopAsyncIteration is error-prone).
+_STREAM_DONE = object()
+
+
+async def _anext_or_done(stream):
+    try:
+        return await anext(stream)
+    except StopAsyncIteration:
+        return _STREAM_DONE
+
 
 def error_detail(e: Exception) -> str:
     """Human-readable description of a provider/API error.
@@ -147,21 +159,42 @@ class Agent:
             yield event
 
     async def _consume(self, raw_stream):
+        from tuney.agents import confirmation
+
         stream = aiter(raw_stream)
+        pending_next = None
         while True:
+            if pending_next is None:
+                pending_next = asyncio.ensure_future(_anext_or_done(stream))
             try:
-                mode, data = await asyncio.wait_for(
-                    anext(stream), timeout=_STREAM_INACTIVITY_TIMEOUT
+                # shield the real anext: wait_for cancels its awaitable on
+                # timeout, and cancelling the anext would tear down the graph
+                # step mid-flight — including a tool parked on a user
+                # confirmation dialog. Shielding lets the timer fire harmlessly
+                # so we can decide whether the silence is actually a stall.
+                item = await asyncio.wait_for(
+                    asyncio.shield(pending_next),
+                    timeout=_STREAM_INACTIVITY_TIMEOUT,
                 )
-            except StopAsyncIteration:
-                return
             except TimeoutError:
+                # A confirmation dialog keeps the stream legitimately quiet for
+                # as long as the user takes to decide (a mass removal shows many
+                # dialogs back to back). That's the user thinking, not the AI
+                # stalling — keep waiting on the same anext instead of killing
+                # the run.
+                if confirmation.is_pending():
+                    continue
+                pending_next.cancel()
                 raise RuntimeError(
                     "The AI service stopped responding "
                     f"(no data for {_STREAM_INACTIVITY_TIMEOUT:.0f}s). "
                     "Check your connection and try again."
                 ) from None
-            
+            pending_next = None
+            if item is _STREAM_DONE:
+                return
+            mode, data = item
+
             if mode == "updates":
                 if "__interrupt__" in data:
                     # The HITL interrupt value is a HITLRequest dict; surface
