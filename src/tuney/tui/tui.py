@@ -2,14 +2,15 @@ import subprocess
 import sys
 
 from textual.app import App
-from .Screens.MenuScreen import MenuScreen
+from textual.binding import Binding
+from .Screens.WorkspaceScreen import WorkspaceScreen
 
 class TuneyApp(App):
-    # CSS = "DataTable { height: 1fr; } .hidden { display: none; }"
-
     TITLE = "TUNEY"
 
     ansi_color = True
+
+    BINDINGS = [Binding("ctrl+q", "quit", "Quit", show=False)]
 
     def copy_to_clipboard(self, text: str) -> None:
         super().copy_to_clipboard(text)
@@ -18,7 +19,7 @@ class TuneyApp(App):
 
     def on_mount(self) -> None:
         self.theme = "ansi-dark"
-        self.push_screen(MenuScreen())
+        self.push_screen(WorkspaceScreen())
 
 if __name__ == "__main__":
     TuneyApp().run()

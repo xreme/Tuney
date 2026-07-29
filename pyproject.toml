@@ -14,6 +14,7 @@ dependencies = [
     "langchain>=1.3.11",
     "langchain-openai>=1.3.3",
     "langchain-openrouter>=0.2.5",
+    "pillow>=12.3.0",
     "platformdirs>=4.10.0",
     "python-dotenv>=1.2.2",
     "textual>=8.2.7",
@@ -26,3 +27,11 @@ tuney = "tuney.cli:app"
 [build-system]
 requires = ["uv_build>=0.11.23,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tuney/tests"]

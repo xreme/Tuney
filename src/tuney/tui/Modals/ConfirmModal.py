@@ -1,5 +1,7 @@
 import os
 
+from textual import work
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.app import ComposeResult
 from textual.widgets import Button, Label, Static
@@ -9,17 +11,22 @@ from rich.text import Text
 from tuney import library
 
 
-class ConfirmModal(ModalScreen[bool]):
+class ConfirmModal(ModalScreen[bool | str]):
     """Approve/reject dialog for a tool call paused by the HITL middleware.
 
-    Dismisses with True (approve) or False (reject). Escape rejects, so an
+    Dismisses with True (approve), False (reject), "all" (approve this and
+    every further request in the current agent run) or "reject_all" (reject
+    this and every further request in the run). Escape rejects, so an
     abandoned dialog never silently approves a destructive action.
+
+    `position`/`total` describe the pending queue ("2 of 5") when the agent
+    paused on several tool calls at once.
     """
 
     CSS = """
     ConfirmModal { align: center middle; }
     #confirm-dialog {
-        width: 60%;
+        width: 80%;
         max-width: 80;
         height: auto;
         border: solid $warning;
@@ -47,22 +54,27 @@ class ConfirmModal(ModalScreen[bool]):
         height: auto;
         align-horizontal: center;
     }
-    #confirm-buttons Button { margin: 0 2; }
+    /* Four buttons share one row — let them shrink to their labels. */
+    #confirm-buttons Button { margin: 0 1; min-width: 0; width: auto; }
     """
 
     BINDINGS = [
         ("escape", "reject", "Reject"),
         ("y", "approve", "Approve"),
+        ("a", "approve_all", "Approve all"),
         ("n", "reject", "Reject"),
+        ("r", "reject_all", "Reject all"),
         ("up", "scroll_detail(-1)", "Scroll up"),
         ("down", "scroll_detail(1)", "Scroll down"),
         ("pageup", "scroll_detail_page(-1)", "Page up"),
         ("pagedown", "scroll_detail_page(1)", "Page down"),
     ]
 
-    def __init__(self, request: dict) -> None:
+    def __init__(self, request: dict, position: int = 1, total: int = 1) -> None:
         super().__init__()
         self._request = request
+        self._position = position
+        self._total = total
 
     TITLE_STYLE = "bold cyan"
     ALBUM_STYLE = "italic magenta"
@@ -84,9 +96,17 @@ class ConfirmModal(ModalScreen[bool]):
         if name == "set_track_tags":
             return self._describe_set_tags(args.get("item_id"), args)
         if name == "apply_track_tags":
-            return self._describe_apply_tags(args.get("item_id"),
-                                             str(args.get("artist") or "?"),
-                                             str(args.get("title") or "?"))
+            return self._describe_apply_tags(
+                args.get("item_id"),
+                str(args.get("artist") or "?"),
+                str(args.get("title") or "?"),
+                note="Fetching the full list of changes from MusicBrainz…")
+        if name == "remove_wishlist_item":
+            return self._describe_wishlist_item(args.get("item_id"))
+        if name == "remove_wishlist_items":
+            return self._describe_wishlist_items(list(args.get("item_ids") or []))
+        if name == "clear_wishlist":
+            return self._describe_clear_wishlist()
         return None
 
     @staticmethod
@@ -239,19 +259,148 @@ class ConfirmModal(ModalScreen[bool]):
         text.append("\n\nThe library entry and the file's own tags will be rewritten.")
         return text
 
-    def _describe_apply_tags(self, item_id, artist: str, title: str) -> Text:
+    # Changed fields hidden from the apply_track_tags diff: bookkeeping the
+    # user didn't ask about and can't meaningfully review. artists_sort /
+    # artists_credit just restate `artists`.
+    HIDDEN_TAG_FIELDS = {"mtime", "data_source", "length",
+                         "artists_sort", "artists_credit"}
+    # Human-relevant fields shown first, in this order; anything else
+    # follows alphabetically.
+    TAG_FIELD_ORDER = ("title", "artist", "album", "albumartist", "genre",
+                       "year", "artist_sort", "artist_credit", "composer",
+                       "lyricist", "arranger")
+
+    def _describe_apply_tags(self, item_id, artist: str, title: str,
+                             changes: list | None = None,
+                             note: str | None = None) -> Text:
+        """`changes` is the (field, old, new) diff once fetched; until then a
+        one-line summary plus `note` (progress or error) is shown instead."""
         old_title, old_artist, _album, path = self._item_fields(item_id)
         text = Text()
         text.append("Tuney would like to fix the metadata of ")
         text.append(old_title, style=self.TITLE_STYLE)
         if old_artist:
             text.append(f" by {old_artist}")
-        text.append(" using MusicBrainz:\n\n  New tags: ")
-        text.append(f"{artist} - {title}", style=self.TITLE_STYLE)
+        text.append(" using MusicBrainz:\n\n")
+        if changes is None:
+            text.append("  New tags: ")
+            text.append(f"{artist} - {title}", style=self.TITLE_STYLE)
+            if note:
+                text.append(f"\n\n  {note}", style="dim")
+        else:
+            rows = [(field, old, new) for field, old, new in changes
+                    if field not in self.HIDDEN_TAG_FIELDS
+                    and not field.startswith("mb_")]
+            order = {field: index for index, field in enumerate(self.TAG_FIELD_ORDER)}
+            rows.sort(key=lambda row: (order.get(row[0], len(order)), row[0]))
+            if not rows:
+                text.append("  No visible tag changes — the track already "
+                            "matches this recording (MusicBrainz ids may "
+                            "still be updated).")
+            for field, old, new in rows:
+                text.append(f"  {field}: {old or '(empty)'} -> ")
+                text.append(str(new), style=self.TITLE_STYLE)
+                text.append("\n")
+            text.rstrip()
         if path:
             text.append("\n\n  File: ")
             text.append(path, style=self.PATH_STYLE)
         text.append("\n\nThe library entry and the file's own tags will be rewritten.")
+        return text
+
+    # Style for a wishlist item's status chip ("wanted", "ordered", …).
+    STATUS_STYLE = "green"
+
+    @staticmethod
+    def _wishlist():
+        from tuney.wishlist import Wishlist
+        return Wishlist(library.DB)
+
+    def _wishlist_fields(self, item_id) -> tuple[str, str | None, str | None, str | None]:
+        """(title, artist, album, status) for a wishlist id, with fallbacks."""
+        try:
+            with self._wishlist() as wishlist:
+                item = wishlist.get_item(item_id)
+        except Exception:
+            item = None
+        if not item:
+            return f"item {item_id}", None, None, None
+        return (
+            str(item.get("title") or f"item {item_id}"),
+            str(item.get("artist") or "") or None,
+            str(item.get("album") or "") or None,
+            str(item.get("status") or "") or None,
+        )
+
+    def _describe_wishlist_item(self, item_id) -> Text:
+        title, artist, album, status = self._wishlist_fields(item_id)
+        text = Text()
+        text.append("Tuney would like to remove ")
+        text.append(title, style=self.TITLE_STYLE)
+        if artist:
+            text.append(f" by {artist}")
+        if album:
+            text.append(" from ")
+            text.append(album, style=self.ALBUM_STYLE)
+        if status:
+            text.append(" (")
+            text.append(status, style=self.STATUS_STYLE)
+            text.append(")")
+        text.append(" from your wishlist.\n\n")
+        text.append("This only changes your wishlist — nothing in your music "
+                    "library or on disk is affected.")
+        return text
+
+    def _describe_wishlist_items(self, item_ids: list) -> Text:
+        count = len(item_ids)
+        word = "item" if count == 1 else "items"
+        text = Text()
+        text.append(f"Tuney would like to remove these {count} {word} from your "
+                    "wishlist:\n\n")
+        for item_id in item_ids:
+            title, artist, _album, status = self._wishlist_fields(item_id)
+            text.append("  • ")
+            text.append(title, style=self.TITLE_STYLE)
+            if artist:
+                text.append(f" by {artist}")
+            if status:
+                text.append(" (")
+                text.append(status, style=self.STATUS_STYLE)
+                text.append(")")
+            text.append("\n")
+        text.append("\nThis only changes your wishlist — nothing in your music "
+                    "library or on disk is affected.")
+        return text
+
+    def _describe_clear_wishlist(self) -> Text:
+        try:
+            with self._wishlist() as wishlist:
+                items = list(wishlist.all_items() or [])
+        except Exception:
+            items = None
+        text = Text()
+        if items is None:
+            text.append("Tuney would like to clear your ")
+            text.append("ENTIRE wishlist", style=self.TITLE_STYLE)
+            text.append(".\n\n")
+        else:
+            count = len(items)
+            word = "item" if count == 1 else "items"
+            text.append("Tuney would like to clear your ")
+            text.append("ENTIRE wishlist", style=self.TITLE_STYLE)
+            text.append(f" — all {count} {word}:\n\n")
+            for item in items:
+                text.append("  • ")
+                text.append(str(item.get("title") or f"item {item.get('id')}"),
+                            style=self.TITLE_STYLE)
+                artist = str(item.get("artist") or "") or None
+                if artist:
+                    text.append(f" by {artist}")
+                text.append("\n")
+            text.append("\n")
+        text.append("This empties your wishlist. Your music library and the "
+                    "files on disk stay exactly as they are — but this cannot "
+                    "be undone.")
         return text
 
     def compose(self) -> ComposeResult:
@@ -260,20 +409,59 @@ class ConfirmModal(ModalScreen[bool]):
             args = ", ".join(f"{k}={v!r}" for k, v in self._request.get("args", {}).items())
             detail = Text(f"{self._request.get('description') or 'Tool requires approval'}\n\n"
                           f"  {self._request.get('name', '?')}({args})")
+        title = "Tuney needs your approval"
+        if self._total > 1:
+            title += f" ({self._position} of {self._total})"
         with Container(id="confirm-dialog"):
-            yield Label("Tuney needs your approval", id="modal-title")
+            yield Label(title, id="modal-title")
             with VerticalScroll(id="confirm-detail-scroll", can_focus=False):
                 yield Static(detail, id="confirm-detail")
             with Horizontal(id="confirm-buttons"):
-                yield Button("Approve (y)", id="approve", variant="error")
-                yield Button("Reject (n)", id="reject", variant="primary")
-            yield Label(r"\[y] approve | \[n]/\[esc] reject | \[↑↓] scroll", id="modal-hint")
+                yield Button("Approve", id="approve", variant="error")
+                yield Button("Approve all", id="approve-all", variant="warning")
+                yield Button("Reject", id="reject", variant="primary")
+                yield Button("Reject all", id="reject-all", variant="primary")
+            yield Label(r"\[y] approve | \[a] approve all this run | "
+                        r"\[n]/\[esc] reject | \[r] reject all this run | "
+                        r"\[↑↓] scroll", id="modal-hint")
 
     def on_mount(self) -> None:
         self.query_one("#reject", Button).focus()   # safe default
+        if self._request.get("name") == "apply_track_tags":
+            self._load_tag_changes()
+
+    @work(thread=True)
+    def _load_tag_changes(self) -> None:
+        """Fetch the field-by-field diff the MusicBrainz match would write
+        and swap it into the dialog (a network lookup, hence off-thread)."""
+        args = self._request.get("args", {})
+        changes = note = None
+        try:
+            item = library.get_item(args.get("item_id"))
+            if item is None:
+                raise ValueError(f"item {args.get('item_id')} not found")
+            changes = library.preview_track_match(item, str(args.get("recording_id")))
+        except Exception as e:
+            note = f"Couldn't fetch the list of changes from MusicBrainz ({e})."
+        text = self._describe_apply_tags(args.get("item_id"),
+                                         str(args.get("artist") or "?"),
+                                         str(args.get("title") or "?"),
+                                         changes=changes, note=note)
+        self.app.call_from_thread(self._show_detail, text)
+
+    def _show_detail(self, text: Text) -> None:
+        try:
+            self.query_one("#confirm-detail", Static).update(text)
+        except NoMatches:
+            pass    # already answered and dismissed while the lookup ran
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "approve")
+        if event.button.id == "approve-all":
+            self.dismiss("all")
+        elif event.button.id == "reject-all":
+            self.dismiss("reject_all")
+        else:
+            self.dismiss(event.button.id == "approve")
 
     def action_scroll_detail(self, direction: int) -> None:
         scroll = self.query_one("#confirm-detail-scroll", VerticalScroll)
@@ -291,6 +479,12 @@ class ConfirmModal(ModalScreen[bool]):
 
     def action_approve(self) -> None:
         self.dismiss(True)
+
+    def action_approve_all(self) -> None:
+        self.dismiss("all")
+
+    def action_reject_all(self) -> None:
+        self.dismiss("reject_all")
 
     def action_reject(self) -> None:
         self.dismiss(False)
