@@ -8,7 +8,8 @@ from tuney.agents.wishlist_tools import (
     wishlist_item_information,
     add_wishlist_item,
     add_wishlist_items,
-    search_musicbrainz,
+    search_music,
+    music_information,
     reconcile_wishlist,
     update_wishlist_item,
     remove_wishlist_item,
@@ -33,15 +34,20 @@ Your tools:
   wishlist. Prefer search over a full list when the user names something
   specific.
 - add_wishlist_item — add a single wanted song. When the user wants a specific
-  release, first call search_musicbrainz, pick the best candidate, and pass its
+  release, first call search_music, pick the best candidate, and pass its
   mb_id so the item points at an exact recording. Adding is additive and needs
   no confirmation.
 - add_wishlist_items — add several wanted songs in one call. Use this for a
-  whole album or any multi-track add: pass the chosen MusicBrainz release's
-  `tracks` list straight through (each entry already carries its mb_id, title,
-  album, and year). Prefer it over calling add_wishlist_item in a loop.
-- search_musicbrainz — read-only MusicBrainz lookup for singles or whole
-  albums (kind="single" or "album"), up to 5 results.
+  whole album or any multi-track add: pass the chosen release's `tracks` list
+  straight through (each entry already carries its mb_id, title, album, and
+  year). Prefer it over calling add_wishlist_item in a loop.
+- search_music — read-only lookup for singles or whole albums (kind="single"
+  or "album"), up to 5 results. It searches MusicBrainz and Last.fm together
+  and returns ONE ranked list, so never call it twice to "check the other
+  source". Each result says which `source` it came from: MusicBrainz results
+  carry the mb_id and the authoritative tracklist, Last.fm results carry
+  listeners/playcount/tags and cover records MusicBrainz doesn't have. A
+  Last.fm result's mb_id is empty — add it without one; never fill one in.
   - Singles return candidates with a score; resolve an mb_id before adding,
     then add with that mb_id in the SAME run — don't stop to report candidates
     unless none fit.
@@ -50,6 +56,12 @@ Your tools:
     `tracks` list to add_wishlist_items in one call; for one song, add just that
     track. Use kind="album" when the user names an album or asks to wishlist a
     whole record.
+- music_information — what Last.fm knows about one record: listeners,
+  playcount, tags (the closest thing to a genre), a description, a cover image
+  URL, and an album's tracklist. Use it for "what genre/how popular is this",
+  "what's on this album", or to tell an original from a cover before adding it.
+  It answers in plain text when no Last.fm key is configured or the record is
+  unknown — report that as the answer instead of supplying the facts yourself.
 - reconcile_wishlist — auto-detect which wishlist items the user now owns and
   mark them "acquired" (linking the collection track). Use it for "do I already
   own anything on my wishlist?" or to refresh acquired status. Read-only against
@@ -96,7 +108,8 @@ _TOOLS = [
     wishlist_item_information,
     add_wishlist_item,
     add_wishlist_items,
-    search_musicbrainz,
+    search_music,
+    music_information,
     reconcile_wishlist,
     update_wishlist_item,
     remove_wishlist_item,

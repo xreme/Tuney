@@ -16,11 +16,22 @@ ConfirmationHandler = Callable[[list], Awaitable[list[dict]]]
 
 _handler: ConfirmationHandler | None = None
 
+# How many confirmation prompts are currently awaiting the user. The agent's
+# stream-inactivity watchdog checks this so it doesn't mistake "the user is
+# deciding on a dialog" for "the AI service went silent" — a mass removal can
+# put many dialogs in front of the user and easily outlast that window.
+_pending = 0
+
 
 def set_confirmation_handler(handler: ConfirmationHandler | None) -> None:
     """Register the UI's confirmation dialog. Pass None to unregister."""
     global _handler
     _handler = handler
+
+
+def is_pending() -> bool:
+    """True while the user is being asked to confirm one or more tool calls."""
+    return _pending > 0
 
 
 async def confirm(action_requests: list) -> list[dict]:
@@ -30,4 +41,9 @@ async def confirm(action_requests: list) -> list[dict]:
             {"type": "reject", "message": "No confirmation UI is available."}
             for _ in action_requests
         ]
-    return await _handler(action_requests)
+    global _pending
+    _pending += 1
+    try:
+        return await _handler(action_requests)
+    finally:
+        _pending -= 1

@@ -1,4 +1,4 @@
-plugins: duplicates
+plugins: duplicates fetchart embedart
 
 import:
   copy: no
@@ -9,3 +9,14 @@ import:
 duplicates:
   keys: [artist, title]
   strict: yes
+
+fetchart:
+  auto: yes
+  sources:
+    - coverart
+    - itunes
+    - amazon
+    - albumart
+
+embedart:
+  auto: no
