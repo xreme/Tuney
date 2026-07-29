@@ -3,19 +3,22 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, Checkbox, DataTable, Label, SelectionList, Static
 
-from tuney import library
+from tuney import lastfm, library
 from tuney.wishlist import Wishlist
 from tuney.tui.Modals.WishlistFormModal import WishlistFormModal
 
 
 class AddWishlistItemModal(WishlistFormModal):
-    """Add wishlist items via MusicBrainz matching.
+    """Add wishlist items by matching against the metadata sources.
 
     Press Match: with a title it searches recordings; with only an album name
-    (no title) it searches albums. Pick a recording to fill the fields and Add
-    one song. Pick an album to see its songs, then add the whole album or just
-    the tracks you check. The searches hit the network, so they run off the UI
-    thread.
+    (no title) it searches albums. Either way both MusicBrainz and Last.fm are
+    searched and the hits come back as ONE ranked list with a Source column —
+    a per-source button would make the user guess which service knows about a
+    record before they can look for it, which is the thing they came here to
+    find out. Pick a recording to fill the fields and Add one song. Pick an
+    album to see its songs, then add the whole album or just the tracks you
+    check. The searches hit the network, so they run off the UI thread.
     """
 
     CSS = """
@@ -46,8 +49,13 @@ class AddWishlistItemModal(WishlistFormModal):
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    TRACK_COLUMNS = ["Artist", "Title", "Album", "Year", "Score"]
-    ALBUM_COLUMNS = ["Album", "Artist", "Year", "Tracks"]
+    # Score is MusicBrainz's own match confidence and Listeners is Last.fm's
+    # audience — each source fills the column it has an answer for, and the
+    # pair of them is what tells a canonical release from a soundalike.
+    TRACK_COLUMNS = ["Source", "Artist", "Title", "Album", "Score", "Listeners"]
+    ALBUM_COLUMNS = ["Source", "Album", "Artist", "Year", "Tracks", "Listeners"]
+
+    SOURCE_LABELS = {library.MUSICBRAINZ: "MusicBrainz", lastfm.SOURCE: "Last.fm"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,7 +83,7 @@ class AddWishlistItemModal(WishlistFormModal):
                              variant="primary", classes="hidden")
                 yield Button("Cancel", id="cancel")
             yield Label(
-                r"\[Match] search MusicBrainz — album if no title · \[esc] cancel",
+                r"\[Match] search every source — album if no title · \[esc] cancel",
                 id="add-hint")
 
     def on_mount(self) -> None:
@@ -100,32 +108,55 @@ class AddWishlistItemModal(WishlistFormModal):
 
     # ---- match dispatch ----------------------------------------------------
 
+    def _sources(self) -> str:
+        """Which services this search will actually reach. Last.fm is opt-in —
+        naming it here is how the user finds out a key would widen the search
+        rather than wondering why a record never turns up."""
+        return "MusicBrainz + Last.fm" if lastfm.available() else "MusicBrainz"
+
     def action_match(self) -> None:
         """Album search when an album but no title is given; track search
-        otherwise."""
+        otherwise. Both go to every configured source."""
         artist = self._value("artist")
         title = self._value("title")
         album = self._value("album")
         if album and not title:
-            self._status("Searching MusicBrainz for albums…")
+            self._status(f"Searching {self._sources()} for albums…")
             self._album_search(artist, album)
             return
         if not (artist or title):
             self.notify("Enter a title to match, or an album to find a release.",
                         severity="warning")
             return
-        self._status("Searching MusicBrainz…")
+        self._status(f"Searching {self._sources()}…")
         self._match(artist, title, album)
 
     def _match_failed(self, error: Exception) -> None:
-        self._status(f"MusicBrainz lookup failed: {error}")
+        self._status(f"Lookup failed: {error}")
+
+    # ---- cell formatting ---------------------------------------------------
+
+    def _source_label(self, entry: dict) -> str:
+        source = entry.get("source") or ""
+        return self.SOURCE_LABELS.get(source, source)
+
+    def _listeners(self, entry: dict) -> str:
+        """Last.fm's audience, short enough for a table cell (1.2M, 43K)."""
+        count = entry.get("listeners")
+        if not count:
+            return ""
+        if count >= 1_000_000:
+            return f"{count / 1_000_000:.1f}M"
+        if count >= 1_000:
+            return f"{count / 1_000:.0f}K"
+        return str(count)
 
     # ---- track matching ----------------------------------------------------
 
     @work(thread=True, exclusive=True)
     def _match(self, artist: str, title: str, album: str) -> None:
         try:
-            candidates = library.musicbrainz_candidates(
+            candidates = library.search_tracks(
                 artist=artist, title=title, album=album)
         except Exception as error:
             self.app.call_from_thread(self._match_failed, error)
@@ -140,17 +171,18 @@ class AddWishlistItemModal(WishlistFormModal):
         table.clear(columns=True)
         table.add_columns(*self.TRACK_COLUMNS)
         if not candidates:
-            self._status("No MusicBrainz matches found.")
+            self._status(f"No matches found on {self._sources()}.")
             self._show("candidates", False)
             return
         for candidate in candidates:
             score = candidate.get("score")
             table.add_row(
+                self._source_label(candidate),
                 candidate.get("artist") or "",
                 candidate.get("title") or "",
                 candidate.get("album") or "",
-                candidate.get("year") or "",
                 f"{score:.2f}" if isinstance(score, (int, float)) else "",
+                self._listeners(candidate),
             )
         self._status("Select a match to fill its details.")
         self._show("candidates", True)
@@ -162,14 +194,27 @@ class AddWishlistItemModal(WishlistFormModal):
             value = candidate.get(key)
             if value:
                 self._set(key, value)
-        self._status("Filled from MusicBrainz match.")
+        self._status(f"Filled from {self._source_label(candidate)}"
+                     f"{self._extras(candidate)}.")
+
+    def _extras(self, entry: dict) -> str:
+        """The Last.fm-only facts about a chosen match, as a trailing clause.
+        Nothing to say for a MusicBrainz-only hit, hence the empty string."""
+        parts = []
+        listeners = entry.get("listeners")
+        if listeners:
+            parts.append(f"{listeners:,} listeners")
+        tags = entry.get("tags") or []
+        if tags:
+            parts.append(", ".join(tags[:3]))
+        return f" — {' · '.join(parts)}" if parts else ""
 
     # ---- album matching ----------------------------------------------------
 
     @work(thread=True, exclusive=True)
     def _album_search(self, artist: str, album: str) -> None:
         try:
-            albums = library.musicbrainz_albums(artist=artist, album=album)
+            albums = library.search_albums(artist=artist, album=album)
         except Exception as error:
             self.app.call_from_thread(self._match_failed, error)
             return
@@ -183,21 +228,46 @@ class AddWishlistItemModal(WishlistFormModal):
         table.clear(columns=True)
         table.add_columns(*self.ALBUM_COLUMNS)
         if not albums:
-            self._status("No matching albums found.")
+            self._status(f"No matching albums found on {self._sources()}.")
             self._show("candidates", False)
             return
         for album in albums:
             table.add_row(
+                self._source_label(album),
                 album.get("album") or "",
                 album.get("artist") or "",
                 album.get("year") or "",
-                str(album.get("track_count") or 0),
+                str(album.get("track_count") or ""),
+                self._listeners(album),
             )
         self._status("Select an album to add it or pick its songs.")
         self._show("candidates", True)
 
+    @work(thread=True, exclusive=True)
+    def _load_album_tracks(self, album: dict) -> None:
+        """Fetch a tracklist the search didn't carry. Last.fm returns albums
+        without one, so the songs are pulled when an album is actually chosen
+        rather than for every row of every search."""
+        try:
+            tracks = library.album_tracks(album)
+        except Exception as error:
+            self.app.call_from_thread(self._match_failed, error)
+            return
+        album["tracks"] = tracks or []
+        album["tracks_loaded"] = True     # even when empty: don't fetch twice
+        self.app.call_from_thread(self._enter_album_tracks, album)
+
     def _enter_album_tracks(self, album: dict) -> None:
-        self._album_tracks = album.get("tracks", [])
+        if not album.get("tracks") and not album.get("tracks_loaded"):
+            self._status(f"Loading the tracklist for "
+                         f"{album.get('album') or 'this album'}…")
+            self._load_album_tracks(album)
+            return
+        self._album_tracks = album.get("tracks") or []
+        if not self._album_tracks:
+            self._status(f"{self._source_label(album)} has no tracklist for "
+                         "that album — pick another, or add the song by title.")
+            return
         self._mode = "album_tracks"
         selection = self.query_one("#album-tracks", SelectionList)
         selection.clear_options()
@@ -210,9 +280,11 @@ class AddWishlistItemModal(WishlistFormModal):
         self._show("album-tracks", True)
         self.query_one("#select-all", Checkbox).value = True
         self._set_album_track_mode(True)
+        count = len(self._album_tracks)
         self._status(
-            f"{album.get('album') or 'Album'} — {len(self._album_tracks)} "
-            "songs. Add the entire album, or uncheck the ones you don't want.")
+            f"{album.get('album') or 'Album'} — {count} "
+            f"song{'' if count == 1 else 's'}{self._extras(album)}. Add the "
+            "entire album, or uncheck the ones you don't want.")
         selection.focus()
 
     # ---- events ------------------------------------------------------------
