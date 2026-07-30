@@ -1,0 +1,273 @@
+model,case,trajectory_ok,elapsed_s,input_tokens,output_tokens,reasoning_tokens,llm_calls,cost_usd,est_cost_usd,tool_calls,answer,error
+google/gemini-2.5-flash,filename-exact,True,2.09,6082,48,0,2,0.001304,0.001945,search_by_filename,"Yes, you do. The file ""KSI - KILIMANJARO (Official Video).mp3"" is in your collection.",
+google/gemini-2.5-flash,filename-semantic,False,1.57,5945,38,0,2,0.001244,0.001878,search_collection,"I couldn't find ""Good Goodbye"" by Linkin Park in your collection. Did you mean something else?",
+google/gemini-2.5-flash,filename-typo,False,2.62,8945,77,0,3,0.002242,0.002876,search_collection; search_collection,"I couldn't find a track called ""Bone Marrow"" by G-Eazy in your collection. I tried searching for variations of the artist and title, but nothing came up.",
+google/gemini-2.5-flash,filename-artist-only,False,4.21,14972,101,0,5,0.004744,0.004744,search_collection; search_collection; search_collection; distinct_values,"I couldn't find any songs by ""Sik Kid"" in your collection. Did you mean something else? It's possible the artist is spelled differently. I searched for ""Sik Kid"", ""SikKid"", and used a flexible search to account for spacing differences, but found nothing.",
+google/gemini-2.5-flash,count-drake,True,1.57,5933,18,0,2,0.001190,0.001825,count_items,You have 212 songs by Drake.,
+google/gemini-2.5-flash,count-larry-june,True,1.43,5938,23,0,2,0.001839,0.001839,count_items,There are 244 songs by Larry June in your collection.,
+google/gemini-2.5-flash,count-absent-artist,True,1.70,5934,31,0,2,0.001858,0.001858,count_items,I can't find any songs by Taylor Swift in your collection. Did you mean to spell something differently?,
+google/gemini-2.5-flash,locate-file-present,True,2.63,9213,71,0,3,0.001665,0.002941,search_collection; locate_file,"The file for ""First Day Out"" by Tee Grizzley is located at `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 02 - First Day Out.flac`.",
+google/gemini-2.5-flash,locate-drive-unmounted,True,2.47,9241,92,0,3,0.002363,0.003002,search_collection; locate_file,"The file for ""Off The Grid"" by Kanye West was located at `/Volumes/MUSIC/Music/Music/Kanye West/Donda (Deluxe)/1-05 Off The Grid.mp3`. However, the drive it lives on is not currently mounted, so the file cannot be accessed. Please reconnect the drive to use it.",
+google/gemini-2.5-flash,locate-file-missing,True,2.77,9202,69,0,3,0.001657,0.002933,search_collection; locate_file,"The track ""Overlapped"" by Tee Grizzley is stored at `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 07 - Overlapped.flac`.",
+google/gemini-2.5-flash,metadata-you-mad-bro,True,4.71,19545,273,0,5,0.003935,0.006546,search_collection; search_collection; search_collection; search_collection,"I found a track by Speaker Knockerz called ""U Mad Bro"". It seems I misremembered the title. Here is the metadata for ""U Mad Bro"":
+
+| Field       | Value                                |
+|-------------|--------------------------------------|
+| Title       | U Mad Bro                            |
+| Album       | Married to the Money II #MTTM2       |
+| Artist      | Speaker Knockerz                     |
+| Year        | 2014                                 |
+| Month       | 9                                    |
+| Day         | 2                                    |
+| Genres      | Rap                                  |
+| Beets ID    | 11777                                |
+| Imported    | 2026-07-04 11:53                     |
+| Modified    | 2024-03-18 20:06                     |",
+openai/gpt-oss-120b,filename-exact,True,4.19,6455,183,88,2,0.000270,0.000270,search_by_filename,"**Result:** Yes, the file **KSI - KILIMANJARO (Official Video).mp3** is present in your collection (beets ID 12049).",
+openai/gpt-oss-120b,filename-semantic,False,13.21,30930,500,246,7,0.001229,0.001229,search_collection; search_collection; search_collection; search_collection; search_collection; distinct_values,,
+openai/gpt-oss-120b,filename-typo,False,3.06,6269,140,73,2,0.000256,0.000256,search_collection,,
+openai/gpt-oss-120b,filename-artist-only,False,2.84,6303,140,88,2,0.000257,0.000257,search_collection,"{""result"": []}",
+openai/gpt-oss-120b,count-drake,True,1.94,6240,71,22,2,0.000243,0.000243,count_items,**Drake tracks in your library:** **212**.,
+openai/gpt-oss-120b,count-larry-june,True,2.55,6291,116,80,2,0.000252,0.000252,count_items,**Larry June tracks in your collection:** 244 🎧,
+openai/gpt-oss-120b,count-absent-artist,True,2.11,6262,92,47,2,0.000247,0.000247,count_items,You have **0** Taylor Swift songs in your collection.,
+openai/gpt-oss-120b,locate-file-present,True,6.38,9964,342,162,3,0.000427,0.000427,search_collection; locate_file,"**File location for “First Day Out” by Tee Grizzley**
+
+| Title | Artist | Album | Year | File Path |
+|-------|--------|-------|------|-----------|
+| First Day Out | Tee Grizzley | My Moment | 2017 | `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 02 - First Day Out.flac` |
+
+The track is stored as a FLAC file in the *My Moment (2017)* folder.",
+openai/gpt-oss-120b,locate-drive-unmounted,True,5.48,9814,257,67,3,0.000407,0.000407,search_collection; locate_file,"**Track:** “Off The Grid” – Kanye West (2021)  
+**Album:** *Donda (Deluxe)*  
+**Beets ID:** 9792  
+
+**File location:**  
+`/Volumes/MUSIC/Music/Music/Kanye West/Donda (Deluxe)/1-05 Off The Grid.mp3`
+
+The drive containing this path isn’t currently mounted, so the file can’t be accessed at the moment. Re‑mount the drive (or connect the storage device) to retrieve the file.",
+openai/gpt-oss-120b,locate-file-missing,True,4.41,9776,180,60,3,0.000392,0.000392,search_collection; locate_file,"**File location:**  
+
+`/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 07 - Overlapped.flac`",
+openai/gpt-oss-120b,metadata-you-mad-bro,True,10.44,13221,500,256,4,0.000574,0.000574,search_collection; <|constrain|>json; search_collection,"{
+  ""items"": [
+    {
+      ""title"": ""You Mad Bro?"",
+      ""artist"": ""Popp"",
+      ""album"": ""Bass Slap Sessions"",
+      ""year"": 2022,
+      ""genres"": [
+        ""Hip-Hop"",
+        ""Instrumental""
+      ],
+      ""imported"": ""2023-04-15"",
+      ""modified"": ""2023-04-15"",
+      ""beets_id"": 1245
+    }
+  ],
+  ""total_count"": 1,
+  ""page"": 1,
+  ""page_size"": 100
+}",
+qwen/qwen3.7-flash,filename-exact,True,4.96,7719,427,180,2,0.000287,0.000287,search_by_filename,"Yes, you have that file. It appears in your collection as an untagged track:
+
+| Field | Value |
+|-------|-------|
+| File Name | KSI - KILIMANJARO (Official Video).mp3 |
+| Title | (empty/untagged) |
+| Artist | (empty/untagged) |
+| Album | (empty/untagged) |
+| Year | (empty) |
+| Genres | (none) |
+| Beets ID | 12049 |
+| Imported | 2026-07-04 11:53 |
+| Modified | 2018-10-20 21:05 |
+
+The track has no metadata tags — it's only identifiable by its filename. Would you like me to look up where it's stored on disk, or help you add tags to it?",
+qwen/qwen3.7-flash,filename-semantic,True,13.52,41106,953,439,6,0.001253,0.001357,search_collection; search_collection; search_collection; search_by_filename; search_collection; search_collection; distinct_values; search_collection; search_collection,"I was unable to find a track called ""Good Goodbye"" by Linkin Park in your collection. Here's what I searched:
+
+- Direct search for artist: ""Linkin Park"" and title: ""Good Goodbye"" - no results
+- Search by filename for ""good goodbye"" - no results
+- Search for any Linkin Park tracks in your collection - none found
+- Search for tracks with ""goodbye"" in the title - found:
+  - **""Hello goodbye""** by Charli xcx (album: *Brat and it's the same but there's three more songs so it's not*, 2024)
+  - **""Goodbye""** by Sleepy Hallow (album: *Boy Meets World*, 2023)
+
+**Good Goodbye** by Linkin Park does not appear to be in your music library. The collection contains 0 tracks by Linkin Park. Were you perhaps thinking of a different track or artist?",
+qwen/qwen3.7-flash,filename-typo,True,11.93,21717,1035,551,5,0.000629,0.000786,search_collection; search_collection; search_collection; search_collection; search_by_filename; item_information,"Found the track! It's present in your collection but untagged (no metadata fields populated). The information comes from the filename:
+
+| Field | Value |
+|-------|-------|
+| **File Path** | `/Volumes/MUSIC/Music/Music/Unknown Artist/Unknown Album/G-Eazy - Bone Marrow (Audio) ft. Danny Seth.mp3` |
+| **Title (from filename)** | Bone Marrow (Audio) ft. Danny Seth |
+| **Artist (from filename)** | G-Eazy |
+| **Duration** | 3:27 (207.33 seconds) |
+| **Format** | MP3, 192 kbps CBR |
+| **Imported** | 2026-07-04 11:53 |
+| **Modified** | 2018-10-20 21:05 |
+| **Beets ID** | 12041 |
+
+All metadata fields (title, artist, album, year, genres) are empty. The track was tagged only by its filename when imported.
+
+Would you like me to retrieve its file path or help with tags for this item?",
+qwen/qwen3.7-flash,filename-artist-only,True,9.96,24338,647,247,6,0.000710,0.000814,search_collection; search_collection; distinct_values; search_collection; search_by_filename,"You have one track by Sik Kid in your collection:
+
+| Field | Value |
+|-------|-------|
+| **Title** | (untagged – shown as filename) |
+| **Filename** | `Sik Kid - Broken Wings (Prod. Tido Vegas).mp3` |
+| **Album** | (untagged) |
+| **Artist** | (untagged) |
+| **Year** | (untagged) |
+| **Imported** | 2026-07-04 |
+| **Modified** | 2020-12-20 |
+| **Beets ID** | 12081 |
+
+It looks like this track is untagged, so the title only appears as the filename: **""Broken Wings (Prod. Tido Vegas)""**.",
+qwen/qwen3.7-flash,count-drake,True,2.26,7532,124,74,2,0.000138,0.000242,count_items,You have **212** Drake songs in your collection.,
+qwen/qwen3.7-flash,count-larry-june,True,5.97,7930,526,471,2,0.000306,0.000306,count_items,You have **244** songs by Larry June in your collection.,
+qwen/qwen3.7-flash,count-absent-artist,True,9.32,28071,589,304,7,0.000658,0.000919,count_items; count_items; count_items; distinct_values; distinct_values; search_collection,"You don't have any Taylor Swift songs in your collection. I searched using several variations (including exact matching and flexible spacing with regex), and none were found. Your library contains tracks by Latto & Teyana Taylor, but no Taylor Swift.",
+qwen/qwen3.7-flash,locate-file-present,True,3.94,11736,225,90,3,0.000277,0.000381,search_collection; locate_file,"The file for **Tee Grizzley - First Day Out** is located at:
+
+`/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 02 - First Day Out.flac`",
+qwen/qwen3.7-flash,locate-drive-unmounted,True,4.76,11841,316,143,3,0.000240,0.000396,search_collection; locate_file,"The file for ""Off The Grid"" by Kanye West is located at:
+
+`/Volumes/MUSIC/Music/Music/Kanye West/Donda (Deluxe)/1-05 Off The Grid.mp3`
+
+However, the drive it's stored on (`MUSIC`) isn't currently mounted, so the file can't be accessed right now. You'll need to reconnect the drive to access it.",
+qwen/qwen3.7-flash,locate-file-missing,True,3.96,11796,268,137,3,0.000232,0.000389,search_collection; locate_file,"The track ""Overlapped"" by Tee Grizzley is stored at:
+
+`/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 07 - Overlapped.flac`",
+qwen/qwen3.7-flash,metadata-you-mad-bro,True,16.58,45668,1165,521,9,0.001101,0.001521,search_collection; search_collection; search_by_filename; search_collection; search_collection; search_collection; search_collection; item_information,"Here's the metadata for **""U Mad Bro""** by Speaker Knockerz:
+
+| Field | Value |
+|-------|-------|
+| **Title** | U Mad Bro |
+| **Artist** | Speaker Knockerz |
+| **Album Artist** | Speaker Knockerz |
+| **Album** | Married to the Money II #MTTM2 |
+| **Year** | 2014 |
+| **Month** | September |
+| **Day** | 2 |
+| **Track** | 6 |
+| **Genres** | Rap |
+| **Label** | Talibandz Entertainment |
+| **Format** | MP3 |
+| **Bitrate** | 252799 (VBR) |
+| **Sample Rate** | 44100 Hz |
+| **Channels** | 2 (Stereo) |
+| **Length** | 229.20 seconds (~3:49) |
+| **Path** | `/Volumes/MUSIC/Music/Music/Speaker Knockerz/Married to the Money II #MTTM2/1-06 U Mad Bro.mp3` |
+| **Imported** | 2026-07-04 11:53 |
+| **Modified** | 2024-03-18 20:06 |
+| **Comment** | *(empty)* |
+| **Lyrics** | *(empty)* |
+
+**Notes:**
+- No barcode, ISRC, or MB IDs are present in the metadata
+- The file appears to be a 2014 release that was added to the library in July 2026",
+deepseek/deepseek-v4-flash,filename-exact,True,6.99,7527,226,38,2,0.000472,0.001117,search_by_filename,"Yes, you have that file. Here are the details:
+
+| Field | Value |
+|-------|-------|
+| **File name** | `KSI - KILIMANJARO (Official Video).mp3` |
+| **Beets ID** | 12049 |
+| **Imported** | 4 July 2026 |
+| **Last modified** | 20 October 2018 |
+
+The track appears to be **untagged** — it has no title, artist, album, or genre metadata set. It was imported just a few weeks ago. Would you like me to look into fixing the metadata for it?",
+deepseek/deepseek-v4-flash,filename-semantic,True,66.81,43548,2633,1710,10,0.001849,0.006834,search_collection; search_collection; item_information; locate_file; search_collection; search_collection; search_collection; item_information; locate_file; search_collection; search_collection; search_by_filename,"Here's what I found:
+
+**""Good Goodbye""** by **Linkin Park** is in your collection, tucked away on their album **One More Light** (Track 4, 2017). It was added to your library on **2022-03-15**.
+
+However, it appears the actual audio file (""Linkin Park - Good Goodbye (128).mp3"") may have been **moved, renamed, or deleted from disk** since it was imported — the database still has the entry, but the file itself can't be located at its expected path. You may want to re-import it or check if it's sitting somewhere else on your drive.",
+deepseek/deepseek-v4-flash,filename-typo,True,49.52,48895,1773,588,11,0.001920,0.007342,search_collection; search_collection; search_collection; search_collection; search_collection; search_collection; search_collection; search_collection; distinct_values; distinct_values; search_collection; search_collection; search_collection; search_collection; search_collection; search_by_filename; search_by_filename; item_information,"Here's what I found:
+
+**""Bone Marrow"" by G-Eazy (feat. Danny Seth)** — it's in your collection but **completely untagged** (no title, artist, album, or year metadata). It's sitting at:
+
+| Field | Value |
+|-------|-------|
+| **File name** | `G-Eazy - Bone Marrow (Audio) ft. Danny Seth.mp3` |
+| **Format** | MP3 (192kbps CBR) |
+| **Length** | 3:27 |
+| **File path** | `/Volumes/MUSIC/Music/Music/Unknown Artist/Unknown Album/G-Eazy - Bone Marrow (Audio) ft. Danny Seth.mp3` |
+| **Imported** | 2026-07-04 |
+
+**Note on spelling:** The actual title is ""Bone **Marrow**"" (two r's), close to what you typed — it just has an extra 'r'. Want me to tag this track with the correct metadata?",
+deepseek/deepseek-v4-flash,filename-artist-only,True,47.68,102233,1616,707,12,0.003311,0.014765,search_collection; search_collection; search_collection; search_collection; search_collection; distinct_values; distinct_values; distinct_values; search_collection; search_collection; distinct_values; search_collection; search_by_filename; search_collection; item_information,"Found it! It's an untagged track — no metadata was ever written to the file — so it showed up with no title/artist fields, but the file name tells the story.
+
+| Track | Artist | Title | File | Format | Length |
+|-------|--------|-------|------|--------|--------|
+| 1 | **Sik Kid** | **Broken Wings** (Prod. Tido Vegas) | `Sik Kid - Broken Wings (Prod. Tido Vegas).mp3` | MP3 (128 kbps) | 3:57 |
+
+**""Broken Wings""** — the only Sik Kid track in your library. It's sitting in the ""Unknown Artist / Unknown Album"" folder since it's completely untagged. If you'd like, I can help tag it properly with its artist and title so it shows up cleaner in your collection.",
+deepseek/deepseek-v4-flash,count-drake,True,7.49,7296,209,148,2,0.000455,0.001080,count_items,You have **212 tracks** by Drake in your collection.,
+deepseek/deepseek-v4-flash,count-larry-june,True,29.26,91726,1108,345,7,0.002795,0.013152,search_collection; count_items; distinct_values; count_items; distinct_values; count_items,"Here's a full breakdown of the **244 Larry June tracks** in your collection:
+
+| Artist Credit | Tracks |
+|---|---|
+| Larry June (solo) | 186 |
+| Larry June & 2 Chainz | 13 |
+| Jay Worthy, Larry June, LNDN DRGS | 11 |
+| Larry June & Harry Fraud | 10 |
+| Larry June & The Alchemist | 7 |
+| Joey Bada$$ feat. Larry June | 1 |
+| Larry June & B-Legit | 1 |
+| Larry June & DJ.Fresh | 1 |
+| Larry June & Jhené Aiko | 1 |
+| Larry June & Swizz Beatz | 1 |
+| Larry June & Wallo267 | 1 |
+| Larry June, Jay Versace & Musiq Soulchild | 1 |
+| Larry June, The Alchemist & Action Bronson | 1 |
+| Larry June, The Alchemist & Big Sean | 1 |
+| Larry June, The Alchemist & Boldy James | 1 |
+| Larry June, The Alchemist & Evidence | 1 |
+| Larry June, The Alchemist & Jay Worthy | 1 |
+| Larry June, The Alchemist & Slum Village | 1 |
+| Larry June, The Alchemist & Wiz Khalifa | 1 |
+| Larry June, The Alchemist, Joey Bada$$ & Curren$y | 1 |
+| Larry June; Peezy | 1 |
+| LNDN DRGS x Jay Worthy x Sean House x Larry June | 1 |
+| **Total** | **244** |
+
+**Note:** There are quite a few duplicate tracks in the mix (e.g., *Adjust to the Game*, *Doing It For Me*, *Numbers*, and *Orange Print* all appear to have duplicate entries). Would you like me to look into those duplicates?",
+deepseek/deepseek-v4-flash,count-absent-artist,True,16.24,19670,540,184,5,0.000536,0.002905,count_items; count_items; distinct_values; distinct_values; distinct_values; distinct_values,You have **0 Taylor Swift songs** in your collection. Nothing by her (or any variation of the name) is currently in your library.,
+deepseek/deepseek-v4-flash,locate-file-present,True,6.57,11490,228,54,3,0.000290,0.001672,search_collection; locate_file,"The file for **Tee Grizzley** – **""First Day Out""** (from the album *My Moment*, 2017) is located at:
+
+```
+/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 02 - First Day Out.flac
+```",
+deepseek/deepseek-v4-flash,locate-drive-unmounted,True,10.56,11396,350,76,3,0.000405,0.001693,search_collection; locate_file,"Here's what I found for **""Off The Grid""** by Kanye West:
+
+| Detail | Info |
+|---|---|
+| **Title** | Off The Grid |
+| **Artist** | Kanye West |
+| **Album** | Donda (Deluxe) |
+| **Year** | 2021 |
+| **Genres** | Rap |
+| **Format** | MP3 |
+
+**File path:** `/Volumes/MUSIC/Music/Music/Kanye West/Donda (Deluxe)/1-05 Off The Grid.mp3`
+
+However, the drive where it's stored (`/Volumes/MUSIC/`) **is not currently mounted**, so the file can't be accessed right now. Once you reconnect that drive, the file will be available at the path above.",
+deepseek/deepseek-v4-flash,locate-file-missing,True,15.12,11498,262,63,3,0.000297,0.001683,search_collection; locate_file,"**Overlapped** by Tee Grizzley (from the album *My Moment*, 2017) is stored at:
+
+| Detail | Value |
+|---|---|
+| **File path** | `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 07 - Overlapped.flac` |
+| **Format** | FLAC |
+| **Track #** | Track 7 on the album |",
+deepseek/deepseek-v4-flash,metadata-you-mad-bro,True,15.87,15228,508,103,4,0.000441,0.002274,search_collection; search_collection; search_collection; search_collection; search_collection,"Found it! The track is actually titled **""U Mad Bro""** by **Speaker Knockerz**. Here's its full metadata:
+
+| Field | Value |
+|---|---|
+| **Title** | U Mad Bro |
+| **Artist** | Speaker Knockerz |
+| **Album** | Married to the Money II #MTTM2 |
+| **Year** | 2014 (September 2) |
+| **Genres** | Rap |
+| **Imported** | 2026-07-04 |
+| **Last Modified** | 2024-03-18 |
+| **Beets ID** | 11777 |
+
+So the spelling in your library is **""U Mad Bro""** (not ""You mad bro"") — easy mix-up! Let me grab the full file info if you'd like the path or anything else.",

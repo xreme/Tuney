@@ -3,7 +3,12 @@ import csv
 import time
 from datetime import datetime
 from pathlib import Path
-from collectionCases import CASES
+from collectionCases import (
+    FILENAME_CASES,
+    COUNT_CASES,
+    LOCATION_CASES,
+    METADATA_CASES,
+)
 from openrouterRates import estimate_cost, rate_summary
 from tuney.agents.Agent import Agent
 from tuney.agents.collectionSearchAgent import TOOLS, _dated_prompt
@@ -19,6 +24,14 @@ candidate_models = ["google/gemini-2.5-flash",
                     "qwen/qwen3.7-flash",
                     "deepseek/deepseek-v4-flash",
                     ]
+
+CASES = [
+    *FILENAME_CASES,
+    *COUNT_CASES,
+    *LOCATION_CASES,
+    *METADATA_CASES,
+]
+
 
 async def run_case(agent, prompt):
     agent.new_thread()
