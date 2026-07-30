@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from collectionCases import CASES
+from openrouterRates import estimate_cost, rate_summary
 from tuney.agents.Agent import Agent
 from tuney.agents.collectionSearchAgent import TOOLS, _dated_prompt
 from agentevals.trajectory.match import create_trajectory_match_evaluator
@@ -46,6 +47,7 @@ async def run_case(agent, prompt):
         "reasoning_traces": reasoning,
         "llm_calls": len(ai),
         "tool_calls": [tc["name"] for m in ai for tc in (m.tool_calls or [])],
+        "cost": sum(m.response_metadata.get("cost", 0) or 0 for m in ai),
     }
 
 async def evaluate(model: str, case: dict) -> dict:
@@ -71,6 +73,10 @@ async def evaluate(model: str, case: dict) -> dict:
         "llm_calls": result["llm_calls"],
         "tool_calls": result["tool_calls"],
         "answer": result["answer"],
+        "cost_usd": result["cost"],
+        "est_cost_usd": estimate_cost(
+            model, result["input_tokens"], result["output_tokens"]
+        ),
     }
 
 async def test_models():
@@ -101,6 +107,8 @@ CSV_COLUMNS = [
     "output_tokens",
     "reasoning_tokens",
     "llm_calls",
+    "cost_usd",
+    "est_cost_usd",
     "tool_calls",
     "answer",
     "error",
@@ -117,14 +125,64 @@ def write_csv(rows: list[dict], path: Path) -> None:
                 out["tool_calls"] = "; ".join(out["tool_calls"])
             if "elapsed_s" in out:
                 out["elapsed_s"] = f"{out['elapsed_s']:.2f}"
+            for key in ("cost_usd", "est_cost_usd"):
+                if out.get(key) is None:
+                    out.pop(key, None)  # unpriced model: leave the cell empty
+                else:
+                    out[key] = f"{out[key]:.6f}"
             writer.writerow(out)
 
+def _label(model: str) -> str:
+    """Short display name: 'google/gemini-2.5-flash' -> 'gemini-2.5-flash'."""
+    return model.split("/")[-1]
+
+def print_progress(row: dict, elapsed: float) -> None:
+    if "error" in row:
+        status = f"error: {row['error'].split(':')[0]}"
+    else:
+        status = "success" if row["trajectory_ok"] else "failed"
+    print(f"{_label(row['model'])} — {row['case']} ({status}) [{elapsed:.1f}s]")
+
+def print_projection(rows: list[dict], batch: int = 1000) -> None:
+    """Per-model cost, and what the same workload would cost at volume.
+
+    Projects from the billed total when there is one, falling back to the rate
+    card estimate — so the numbers still mean something if a run came back
+    without cost accounting.
+    """
+    print("\n" + "=" * 84)
+    print(f"cost by model (projected over {batch:,} cases)")
+    print("-" * 84)
+    for model in candidate_models:
+        done = [r for r in rows if r["model"] == model and "error" not in r]
+        if not done:
+            print(f"{model:<30} no successful cases")
+            continue
+        billed = sum(r["cost_usd"] for r in done)
+        estimates = [r["est_cost_usd"] for r in done if r["est_cost_usd"] is not None]
+        estimated = sum(estimates) if estimates else None
+        est_txt = f"${estimated:.6f}" if estimated is not None else "n/a"
+        per_case = (billed or estimated or 0) / len(done)
+        print(
+            f"{model:<30} {len(done):>2} cases"
+            f"  billed ${billed:.6f}  est {est_txt}"
+            f"  →  ${per_case * batch:.2f} / {batch:,}"
+        )
+        print(f"{'':<30} rates: {rate_summary(model)}")
+
 async def main() -> None:
+    total = len(candidate_models) * len(CASES)
+    print(f"Running evals... {len(candidate_models)} models x {len(CASES)} cases"
+          f" ({total} runs)\n")
+
     rows = []
     for model in candidate_models:
         for case in CASES:
+            start = time.perf_counter()
             row = await evaluate(model, case)
+            print_progress(row, time.perf_counter() - start)
             rows.append(row)
+    # print_projection(rows)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     path = RESULTS_DIR / f"collection-search-agent-{stamp}.csv"

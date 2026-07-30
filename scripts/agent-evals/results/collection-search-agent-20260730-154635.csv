@@ -1,0 +1,74 @@
+model,case,trajectory_ok,elapsed_s,input_tokens,output_tokens,reasoning_tokens,llm_calls,tool_calls,answer,error
+google/gemini-2.5-flash,count-drake,True,2.14,5933,18,0,2,count_items,You have 212 songs by Drake.,
+google/gemini-2.5-flash,metadata-you-mad-bro,True,6.05,14926,105,0,5,search_collection; search_collection; search_collection; search_collection,"I couldn't find any tracks with ""You Mad Bro"" in the title or by an artist with that name. It's possible the track is untagged or has a slightly different spelling.
+
+Could you provide any more details, such as the artist, album, or a different spelling? 
+",
+openai/gpt-oss-120b,count-drake,True,3.41,6239,71,20,2,count_items,**Drake tracks in your library:** 212 🎧,
+openai/gpt-oss-120b,metadata-you-mad-bro,True,22.06,21868,899,519,6,search_collection; search_collection; search_collection; search_collection; search_collection,"**Metadata for “U Mad Bro”**
+
+| Field | Value |
+|-------|-------|
+| **Title** | U Mad Bro |
+| **Album** | Married to the Money II #MTTM2 |
+| **Artist** | Speaker Knockerz |
+| **Year** | 2014 |
+| **Genres** | Rap |
+| **Beets ID** | 11777 |
+| **Imported** (added to library) | 2026‑07‑04 11:53 |
+| **Last Modified** (metadata/file change) | 2024‑03‑18 20:06 |
+
+*The track is stored under the title “U Mad Bro”; the query “you mad bro” matches it via the “U” spelling.*",
+qwen/qwen3.7-flash,count-drake,True,7.88,7533,114,65,2,count_items,You have 212 Drake songs in your collection.,
+qwen/qwen3.7-flash,metadata-you-mad-bro,True,11.60,13361,939,398,3,search_collection; search_collection; search_collection; item_information,"Here's the full metadata for **""U Mad Bro""** by Speaker Knockerz:
+
+| Field | Value |
+|---|---|
+| **Title** | U Mad Bro |
+| **Artist** | Speaker Knockerz |
+| **Album** | Married to the Money II #MTTM2 |
+| **Album Artist** | Speaker Knockerz |
+| **Track Number** | 6 |
+| **Year** | 2014 (Sep 2) |
+| **Genre** | Rap |
+| **Label** | Talibandz Entertainment |
+| **Format** | MP3 |
+| **Bitrate** | ~253 kbps (VBR) |
+| **Sample Rate** | 44100 Hz |
+| **Channels** | 2 (Stereo) |
+| **Length** | 3:49 (229.2 seconds) |
+| **BPM** | Unknown (0) |
+| **ISRC** | (empty) |
+| **Composer** | (empty) |
+| **Media** | Digital Media |
+| **Language** | English |
+| **Script** | Latn |
+| **File Path** | `/Volumes/MUSIC/Music/Music/Speaker Knockerz/Married to the Money II #MTTM2/1-06 U Mad Bro.mp3` |
+| **Added to Library** | 2026-07-04 11:53 |
+| **Last Modified** | 2024-03-18 20:06 |
+| **Beets ID** | 11777 |
+
+*Note: Missing metadata includes MB IDs (acoustid, releasegroupid, albumid, artistid, workid, isrc, etc.) and various credit fields (composer, lyricist, arranger) are empty.*",
+deepseek/deepseek-v4-flash,count-drake,True,4.57,7377,88,27,2,count_items,You have **212 tracks** by Drake in your collection.,
+deepseek/deepseek-v4-flash,metadata-you-mad-bro,True,13.63,12197,417,58,3,search_collection; item_information,"Here's the full metadata for **""U Mad Bro""** by **Speaker Knockerz**:
+
+| Field | Value |
+|---|---|
+| **Title** | U Mad Bro |
+| **Artist** | Speaker Knockerz |
+| **Album** | Married to the Money II #MTTM2 |
+| **Album Artist** | Speaker Knockerz |
+| **Year** | 2014-09-02 |
+| **Genres** | Rap |
+| **Label** | Talibandz Entertainment |
+| **Track** | 6 / Disc 1 |
+| **Length** | 3:49 |
+| **Format** | MP3 (VBR, ~253 kbps, 44.1 kHz, Stereo) |
+| **Media** | Digital Media |
+| **BPM** | — |
+| **Language** | English |
+| **File Path** | `/Volumes/MUSIC/Music/Music/Speaker Knockerz/Married to the Money II #MTTM2/1-06 U Mad Bro.mp3` |
+| **Imported** | 2026-07-04 |
+| **Last Modified** | 2024-03-18 |
+
+That's the only result matching ""mad bro"" in your collection.",
