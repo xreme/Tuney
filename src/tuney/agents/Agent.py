@@ -139,6 +139,9 @@ class Agent:
         )
         return result["messages"][-1].content_blocks[-1]["text"]
 
+    async def arun(self, message: str) -> dict:
+        return await self._get_agent().ainvoke(self._payload(message), config=self._config())
+
     async def astream(self, message: str):
         """Yield ("reasoning" | "text" | "interrupt", token) pairs as the assistant responds. """
         async for event in self._consume(self._get_agent().astream(
@@ -157,6 +160,14 @@ class Agent:
             stream_mode=["messages", "updates"],
         )):
             yield event
+
+    @property
+    def graph(self):        
+        return self._get_agent()
+
+    @property
+    def run_config(self) -> dict:
+        return self._config()
 
     async def _consume(self, raw_stream):
         from tuney.agents import confirmation
