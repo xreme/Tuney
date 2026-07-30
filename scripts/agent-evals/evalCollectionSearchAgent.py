@@ -9,6 +9,7 @@ def build(model: str) -> Agent:
     return Agent(model=model, system_prompt=_dated_prompt, tools=TOOLS)
 
 candidate_models = ["google/gemini-2.5-flash",
+                    "openai/gpt-oss-120b",
                     "qwen/qwen3.7-flash",
                     "deepseek/deepseek-v4-flash",
                     ]
@@ -16,15 +17,20 @@ candidate_models = ["google/gemini-2.5-flash",
 
 async def test_models():
     for candidate in candidate_models:
-        agent = build(candidate)
+        try:
+            agent = build(candidate)
 
-        start = time.perf_counter()
-        response = await agent.ainvoke("How many Amine songs do I have?")
-        elapsed = time.perf_counter() - start
+            start = time.perf_counter()
+            response = await agent.ainvoke("How many Amine songs do I have?")
+            elapsed = time.perf_counter() - start
 
-        print(f"{candidate}")
-        print(f"Time: {elapsed:.2f}s")
-        print(response)
-        print("-" * 80)
+            print(f"{candidate}")
+            print(f"Time: {elapsed:.2f}s")
+            print(response)
+            print("-" * 40)
+        except Exception as e:
+            print(f"FAILED: {candidate}")
+            print(type(e).__name__)
+            print(e)
 
 asyncio.run(test_models())
