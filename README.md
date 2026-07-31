@@ -1,153 +1,80 @@
 # Tuney
 
-Your local music library assistant — scan, index, search, and chat with Tuney to maintain your collection, get reccomendations, or learn about your favourite artists.
+Your local music library assistant — scan, index, search, and chat with Tuney
+to maintain your collection, get recommendations, or learn about your favourite
+artists.
 
-#
+Tuney keeps everything on your machine: a local Beets database in your
+platform's user data directory (e.g. `~/Library/Application Support/Tuney/` on
+macOS), a terminal UI over it, and an optional AI assistant that can act on the
+library for you.
 
 ## Installation
 
-Tuney uses [uv](https://docs.astral.sh/uv/) for dependency management.
+Tuney uses [uv](https://docs.astral.sh/uv/) for dependency management and
+requires **Python 3.13+**.
 
 ```bash
-# Clone the repository
 git clone https://github.com/osereme/tuney.git
 cd tuney
-
-# Install dependencies and the CLI
 uv sync
 ```
 
-> Beets must also be available on your `PATH`. It is installed as a dependency via uv, so after running `uv sync` the `beet` command will be available inside the project's virtual environment.
+Beets is installed by `uv sync`, so `beet` is available inside the project's
+virtual environment. Converting audio files also needs
+[ffmpeg](https://ffmpeg.org/) on your `PATH` (`brew install ffmpeg`, or
+`apt install ffmpeg`) — everything else works without it.
 
-### AI setup (optional)
+Two optional API keys unlock the AI and richer metadata search. Both can be set
+under **Settings** in the TUI, where they are saved to your system keychain:
 
-The chat assistant talks to an LLM through OpenRouter and needs an API key.
-Everything else in Tuney works without one.
+| Key | What it enables |
+| --- | --- |
+| OpenRouter | The chat assistant. Without it, everything else still works. |
+| Last.fm | Wishlist searches merge Last.fm results with MusicBrainz, adding releases MusicBrainz never catalogued, plus listener counts and tags. |
 
-You can also set the key with the **Settings** inside the TUI. T
+## Features
 
-### Last.fm setup (optional)
+- **Browse and search** your collection in a filterable table, or from the
+  command line with the [Beets query language](https://beets.readthedocs.io/en/stable/reference/query.html).
+- **Chat** with an AI assistant in plain English — "how many Beatles songs do I
+  have?", "rock or metal from the 90s", "clean up my duplicates". It can search,
+  retag, fetch cover art and convert files, and asks before changing anything.
+- **Scan** any folder into the library, with progress streaming live.
+- **Convert** between MP3, AAC, Opus, Ogg, ALAC and FLAC — either exporting
+  copies or replacing the files in your library, with the originals archived
+  rather than deleted. You see what will be re-encoded before it runs.
+- **Wishlist** music you don't own yet, searched across MusicBrainz and Last.fm.
+- **Find duplicates**, repair metadata against MusicBrainz, and fetch missing
+  cover art.
 
-Searching for music to wishlist queries MusicBrainz, and queries
-[Last.fm](https://www.last.fm/api/account/create) as well when an API key is
-configured — one merged list of results, not one list per source. Last.fm
-covers releases MusicBrainz never catalogued and adds listener counts, tags and
-cover art. Without a key, searches quietly fall back to MusicBrainz alone.
+The TUI uses your terminal's ANSI colours, so it matches however your terminal
+is themed.
 
-```bash
-LASTFM_API_KEY=...   # in .env, or save it under Settings in the TUI
-```
-
-## How to Use
-
-### Launch the interactive TUI
-
-Running `tuney` with no arguments opens the terminal UI:
-
-```bash
-uv run tuney
-```
-
-From the main menu you can:
-
-- **View Collection** — browse your entire library in a table (Artist / Title / Album / Year / Format). Press `/` to filter with a search box.
-- **Search library** — type a query and browse matching results (Artist / Title / Album) in a table.
-- **Chat** — ask an AI assistant about your collection in plain English (see below).
-- **Scan Directory** — interactively browse your filesystem and import a folder into the library (see below).
-- **Settings** — manage the OpenRouter and Last.fm API keys (saved to your system keychain), pick the chat model, and see where Tuney keeps its data.
-- **Quit** — exit the application.
-
-The TUI uses your terminal's ANSI color scheme, so it matches however your
-terminal is themed.
-
-**Global keys**
-
-| Key       | Action                      |
-| --------- | --------------------------- |
-| `↑` / `↓` | Move the selection          |
-| `Enter`   | Select / submit             |
-| `Escape`  | Back to the previous screen |
-| `q`       | Quit                        |
-
-#### Chat with Tuney
-
-Selecting **Chat** opens Tuney's chat system. Ask questions to Tuney and
-it answers based on information in your library and external sources, for example:
-
-- "How many Beatles songs do I have?"
-- "What genres are in my library?" / "Tell me about my collection"
-- "Rock or metal tracks from the 90s"
-- "What are some duplicates in my collection?"
-- "Where on disk is the file for that track?" (if the track lives on a drive
-  that isn't mounted right now, it tells you the path it was imported from and
-  that the file can't be accessed until the drive is reconnected)
-
-While the model works, its reasoning streams live into the reply box under
-_Thinking..._ so you can see what it's doing; the trace is replaced by the
-answer as soon as it starts. If the AI service stalls or errors, the failure
-is shown in the reply instead of hanging.
-
-There are two views, and Tuney remembers which one you last used:
-
-- **Focus** (default) — the mascot plus the latest question and answer.
-- **History** — the full scrolling conversation.
-
-#### Scanning from the TUI
-
-Selecting **Scan Directory** opens a file browser starting in your current working
-directory. Navigate to the folder you want to import, then scan it — progress streams
-live as files are added to the library.
-
-### Scan a music directory (CLI)
-
-Index a folder of music files into the Tuney library:
+## Usage
 
 ```bash
-uv run tuney scan /path/to/music
+uv run tuney                              # open the TUI
+uv run tuney scan /path/to/music          # index a folder (defaults to .)
+uv run tuney search "artist:Radiohead"    # headless search
+uv run tuney collection                   # list everything
+uv run tuney duplicates                   # songs that exist as several files
+uv run tuney convert "artist:Radiohead" --format alac
 ```
 
-Running `scan` with no path scans the current directory:
+`convert` prints what it would do and asks first; `--dry-run` shows the exact
+ffmpeg commands without changing anything. Run any command with `--help` for
+its options.
 
-```bash
-uv run tuney scan
-```
+Inside the TUI, `↑`/`↓` moves, `Enter` selects, `Escape` goes back and `q`
+quits.
 
-Tuney imports the files into a local Beets database stored in your platform's user data directory (e.g. `~/Library/Application Support/Tuney/Tuney.db` on macOS).
-
-### Search from the command line
-
-Run a headless search and print results directly to the terminal:
-
-```bash
-uv run tuney search "artist:Radiohead"
-```
-
-Results are printed as `Title (Album)` lines. Query syntax follows the [Beets query language](https://beets.readthedocs.io/en/stable/reference/query.html).
-
-### List your collection
-
-Print every item in your library:
-
-```bash
-uv run tuney collection
-```
-
-Results are printed as `Title (Album)` lines.
-
-### Find duplicate files
-
-List songs that exist as more than one file, grouped by artist and title with
-the path of every copy:
-
-```bash
-uv run tuney duplicates
-```
-
-# Technologies
+## Technologies
 
 | Function                                | Library                                                                                                    |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Local music library management          | [Beets](https://beets.io/)                                                                                 |
+| Audio format conversion                 | Beets' `convert` plugin driving [ffmpeg](https://ffmpeg.org/)                                              |
 | CLI parsing / processing                | [Typer](https://typer.tiangolo.com/)                                                                       |
 | Platform-dependent directory management | [platformdirs](https://github.com/platformdirs/platformdirs)                                               |
 | TUI rendering                           | [Textual](https://textual.textualize.io/)                                                                  |
@@ -155,5 +82,3 @@ uv run tuney duplicates
 | LLM access                              | [OpenRouter](https://openrouter.ai/)                                                                       |
 | Music metadata and cover art            | [MusicBrainz](https://musicbrainz.org/) / [Last.fm](https://www.last.fm/api) / iTunes / Deezer             |
 | API key storage                         | [keyring](https://github.com/jaraco/keyring) + [python-dotenv](https://github.com/theskumar/python-dotenv) |
-
-Requires **Python 3.13+**.
