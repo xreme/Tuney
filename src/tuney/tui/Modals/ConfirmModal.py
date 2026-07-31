@@ -101,6 +101,13 @@ class ConfirmModal(ModalScreen[bool | str]):
                 str(args.get("artist") or "?"),
                 str(args.get("title") or "?"),
                 note="Fetching the full list of changes from MusicBrainz…")
+        if name == "convert_tracks":
+            return self._describe_convert(
+                str(args.get("query") or ""),
+                str(args.get("format") or "?").lower(),
+                bool(args.get("replace")),
+                bool(args.get("album")),
+                str(args.get("quality") or "normal").lower())
         if name == "remove_wishlist_item":
             return self._describe_wishlist_item(args.get("item_id"))
         if name == "remove_wishlist_items":
@@ -235,6 +242,70 @@ class ConfirmModal(ModalScreen[bool | str]):
             "This can take a long time on many tracks."
         )
         return text
+
+    def _describe_convert(self, query: str, fmt: str, replace: bool,
+                          album: bool, quality: str = "normal") -> Text:
+        from tuney import config
+
+        try:
+            plan = library.convert_plan(query, fmt, album=album)
+        except Exception:
+            plan = None
+
+        text = Text()
+        text.append("Tuney would like to convert ")
+        if plan is None:
+            text.append("the matching tracks", style=self.TITLE_STYLE)
+        elif plan["whole_library"]:
+            text.append(f"your ENTIRE library ({plan['matched']} tracks)",
+                        style=self.TITLE_STYLE)
+        else:
+            unit = "albums" if album else "tracks"
+            text.append(f"{plan['matched']} {unit}", style=self.TITLE_STYLE)
+            text.append(" matching ")
+            text.append(query, style=self.ALBUM_STYLE)
+        text.append(" to ")
+        text.append(fmt.upper(), style=self.TITLE_STYLE)
+        text.append(".\n")
+        text.append(f"Quality: {quality} — "
+                    f"{library.quality_summary(fmt, quality)}.\n\n")
+
+        if plan is not None:
+            text.append(f"  {plan['transcode']} files will be re-encoded")
+            text.append(f" ({self._format_bytes(plan['source_bytes'])} of source audio)\n")
+            if plan["skipped"]:
+                text.append(f"  {plan['skipped']} are already {fmt.upper()} — "
+                            "copied, not re-encoded\n")
+            if plan["unreachable"]:
+                reasons = ", ".join(f"{count} {reason}" for reason, count
+                                    in plan["unreachable_by_reason"].items())
+                text.append(f"  {plan['unreachable']} are unreachable "
+                            f"({reasons}) and will be skipped\n",
+                            style=self.PATH_STYLE)
+            if plan["lossy_reencode"]:
+                text.append(f"  {plan['lossy_reencode']} are lossy → lossy "
+                            "re-encodes and WILL lose quality\n",
+                            style=self.PATH_STYLE)
+            text.append("\n")
+
+        cfg = config.get_config()
+        if replace:
+            text.append("Your library will point at the converted files.\n"
+                        "Your original files are MOVED to ")
+            text.append(cfg.convert_archive_path, style=self.PATH_STYLE)
+            text.append(" — nothing is deleted, so this can be undone.")
+        else:
+            text.append("Converted copies are written to ")
+            text.append(cfg.convert_dest_path, style=self.PATH_STYLE)
+            text.append(".\nYour library and your original files are untouched.")
+        text.append("\n\nTranscoding is slow — this may take a while.")
+        return text
+
+    @staticmethod
+    def _format_bytes(num_bytes: int) -> str:
+        if num_bytes >= 1_073_741_824:
+            return f"{num_bytes / 1_073_741_824:.1f} GB"
+        return f"{num_bytes / 1_048_576:.0f} MB"
 
     def _describe_set_tags(self, item_id, args: dict) -> Text:
         old_title, old_artist, _album, path = self._item_fields(item_id)

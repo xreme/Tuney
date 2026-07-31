@@ -1,4 +1,4 @@
-from platformdirs import user_config_path
+from platformdirs import user_config_path, user_music_path
 import json
 from enum import StrEnum
 from dataclasses import dataclass, fields, asdict
@@ -27,7 +27,40 @@ class ImportAutotagMode(StrEnum):
     SAFE = 'safe'    # autotag; skip albums without a confident match
     KEEP = 'keep'    # autotag; import uncertain albums with their existing tags
 
+
+class ConvertFormat(StrEnum):
+    """Target formats for conversion."""
+    MP3 = 'mp3'      # lossy, universal
+    AAC = 'aac'      # lossy, .m4a — Apple devices
+    OPUS = 'opus'    # lossy, best quality per byte
+    OGG = 'ogg'      # lossy, Vorbis
+    ALAC = 'alac'    # lossless, .m4a — Apple devices
+    FLAC = 'flac'    # lossless
+
+
+LOSSY_FORMATS = frozenset({ConvertFormat.MP3, ConvertFormat.AAC,
+                           ConvertFormat.OPUS, ConvertFormat.OGG})
+
+
+class ConvertQuality(StrEnum):
+    """How hard the encoder works. For lossy formats BEST raises the bitrate;
+    for lossless ones the audio is identical either way and BEST only
+    compresses harder."""
+    NORMAL = 'normal'
+    BEST = 'best'
+
 DEFAULT_CHAT_MODEL = "google/gemini-2.5-flash"
+
+
+def default_convert_dest() -> str:
+    """Where converted copies land when the user hasn't chosen a folder."""
+    return str(user_music_path() / "Tuney Converted")
+
+
+def default_convert_archive() -> str:
+    """Where originals are moved when a conversion replaces them in the
+    library."""
+    return str(user_music_path() / "Tuney Originals")
 
 @dataclass
 class Config:
@@ -35,7 +68,20 @@ class Config:
     chat_model: str = DEFAULT_CHAT_MODEL
     chat_detail: ChatDetail = ChatDetail.NORMAL
     import_autotag: ImportAutotagMode = ImportAutotagMode.OFF
+    convert_format: ConvertFormat = ConvertFormat.MP3
+    convert_quality: ConvertQuality = ConvertQuality.NORMAL
+    # Empty means "use the default_convert_* path", resolved below.
+    convert_dest: str = ""
+    convert_archive: str = ""
     workspace_layout: dict | None = None
+
+    @property
+    def convert_dest_path(self) -> str:
+        return self.convert_dest.strip() or default_convert_dest()
+
+    @property
+    def convert_archive_path(self) -> str:
+        return self.convert_archive.strip() or default_convert_archive()
 
     def __post_init__ (self):
         for f in fields(self):

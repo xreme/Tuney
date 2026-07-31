@@ -1,11 +1,12 @@
 from langchain.tools import tool
-from tuney import library
+from tuney import config, library
+from tuney.agents import activity
 import json
 import random
 from collections import Counter
 from datetime import datetime
 from os import fsdecode
-from os.path import basename, getsize
+from os.path import abspath, basename, expanduser, getsize
 
 
 # A serialized item is ~150 tokens; anything past a few hundred items risks
@@ -567,6 +568,163 @@ def fetch_album_art(item_id: int, force: bool = False):
                 "The online sources had nothing matching; a manual image may "
                 "be needed.")
     return f"{head}\n{tail}".strip() if tail else head
+
+@tool
+def convert_tracks(query: str, format: str, replace: bool = False,
+                   album: bool = False, quality: str = "normal",
+                   destination: str = ""):
+    """Convert the audio files of matching tracks to another format
+    (transcoding), e.g. FLAC -> MP3 for a phone, or MP3 -> ALAC.
+
+    `query` is a beets query (same language as `search_collection`) selecting
+    what to convert; `id:NNN` targets one track. An EMPTY query means the
+    user's ENTIRE library — only use it when they clearly asked for that.
+    `format` must be one of: mp3, aac, opus, ogg, alac, flac.
+
+    `destination` is a folder path. Leave it EMPTY to use the folder the user
+    configured in Settings, which is the right choice unless they named a
+    place ("put them on my desktop", "into ~/Music/phone", "onto the USB
+    stick") — pass that path when they do, rather than converting into the
+    default folder and telling them it went somewhere else. `~` is expanded.
+
+    EXPORT IS THE DEFAULT AND YOU DO NOT ASK ABOUT IT:
+    - replace=False (the default) — EXPORT. Converted copies are written to a
+      folder; the library and the original files are untouched. Use this for
+      every conversion request unless the exception below applies, and do not
+      ask the user to choose. "Convert album X to aac", "give me MP3s of…",
+      "make me a copy for my phone" are all plain export.
+    - replace=True — REPLACE. The library entries are repointed at the
+      converted files and the ORIGINAL files are MOVED to the archive folder
+      (never deleted, so it is undoable). Pass this ONLY when the user
+      explicitly asks for their existing files to be swapped or their library
+      changed — "replace my FLACs", "convert my library to mp3 and get rid of
+      the originals", "I don't want to keep the FLACs". Anything short of that
+      is an export.
+    When in doubt, export. It is the reversible one: it adds files and changes
+    nothing the user already has, so guessing it wrong costs disk space rather
+    than their library.
+
+    Set album=True when the user names albums rather than tracks; the query
+    then matches whole albums and every track on them is converted.
+
+    `quality` is "normal" (the default — smaller files at good quality) or
+    "best". Use "best" when the user asks for maximum/highest quality or says
+    the files are for listening critically; use "normal" when they mention
+    saving space or fitting music on a device. Note what "best" means depends
+    on the format: for mp3/aac/opus/ogg it raises the bitrate (bigger files),
+    but flac and alac are LOSSLESS — their audio is identical either way and
+    "best" only compresses harder. Never tell a user that converting to best
+    quality improves a file that was already lossy; re-encoding cannot recover
+    quality that is already gone.
+
+    Calling this tool automatically shows the user a confirmation dialog with
+    the exact counts — how many files will be re-encoded, how many are already
+    in that format, and how many would lose quality — so do NOT ask for
+    permission in chat first. Files already in the target format are copied
+    rather than re-encoded, and files whose drive isn't mounted are skipped.
+
+    This is a long-running operation: transcoding is CPU-bound and a large
+    query can take many minutes.
+
+    Returns what the conversion ACTUALLY did, counted from the encoder's own
+    log, together with the folder the files are in. Relay those numbers and
+    that path as given — do not restate the request as though it succeeded.
+    Two outcomes in particular need passing on plainly rather than smoothing
+    over: files beets left alone because that name already existed in the
+    destination (a re-run converts nothing, which is not a failure), and files
+    whose encode failed (nothing was written for those).
+    """
+    fmt = (format or "").strip().lower()
+    if fmt not in library.CONVERT_FORMATS:
+        return (f"Unknown format {format!r}. Choose one of: "
+                f"{', '.join(library.CONVERT_FORMATS)}.")
+    tier = (quality or "normal").strip().lower()
+    if tier not in library.CONVERT_QUALITIES:
+        return (f"Unknown quality {quality!r}. Choose one of: "
+                f"{', '.join(library.CONVERT_QUALITIES)}.")
+
+    try:
+        plan = library.convert_plan(query, fmt, album=album)
+    except Exception as error:
+        return (f"That query isn't valid, so nothing was converted: {error}. "
+                "Check it with search_collection first.")
+    if not plan["matched"]:
+        return (f"No tracks matched {query!r}, so nothing was converted. "
+                "Check the query with search_collection first.")
+    if not plan["transcode"]:
+        if plan["unreachable"] == plan["matched"]:
+            return (f"All {plan['matched']} matching tracks are unreachable "
+                    f"({plan['unreachable_by_reason']}) — their drive isn't "
+                    "mounted or the files are gone, so nothing was converted.")
+        return (f"All {plan['matched']} matching tracks are already {fmt} — "
+                "nothing needed converting.")
+
+    cfg = config.get_config()
+    if destination and destination.strip():
+        dest = abspath(expanduser(destination.strip()))
+    else:
+        dest = cfg.convert_archive_path if replace else cfg.convert_dest_path
+
+    try:
+        with activity.long_task():
+            log = library.convert(query, fmt, dest, replace=replace,
+                                  album=album, quality=tier)
+    except OSError as error:
+        return (f"Nothing was converted: {dest} could not be used as the "
+                f"destination ({error}). Ask the user for a folder they can "
+                "write to, or leave the destination empty to use the one from "
+                "their settings.")
+
+    # What beets actually wrote, not the plan's forecast — they disagree
+    # whenever a target already existed or an encode failed.
+    done = library.convert_outcome(log)
+
+    lines = log.splitlines()
+    if len(lines) > 40:
+        lines = [f"(… {len(lines) - 40} earlier log lines omitted)"] + lines[-40:]
+
+    if not done["wrote"]:
+        if done["existing"]:
+            head = (f"Nothing was converted: all {done['existing']} files were "
+                    f"already present as {fmt} in {dest}, so beets left them "
+                    "alone. Tell the user the folder already holds these "
+                    "tracks; converting again would need those files moved or "
+                    "deleted first.")
+        elif done["failed"] or done["unreadable"]:
+            head = (f"The conversion FAILED — 0 of {plan['transcode']} files "
+                    f"were written to {dest}. The encoder errored on "
+                    f"{done['failed'] or done['unreadable']} files; the log "
+                    "below says why. The user's files are unchanged.")
+        else:
+            head = (f"Nothing was written to {dest}, and beets did not say why "
+                    "— the log below is the whole record. Do not tell the user "
+                    "the conversion succeeded.")
+        return f"{head}\n" + "\n".join(lines)
+
+    head = (f"Converted {done['encoded']} tracks to {fmt}. The library now "
+            f"points at the new files; the originals were moved to {dest}."
+            if replace else
+            f"Converted {done['encoded']} tracks to {fmt}. The files are in "
+            f"{dest}; the library and the original files are unchanged.")
+    head += f" Quality: {tier} ({library.quality_summary(fmt, tier)})."
+
+    notes = []
+    if done["copied"]:
+        notes.append(f"{done['copied']} were already {fmt} and were copied "
+                     "rather than re-encoded")
+    if done["existing"]:
+        notes.append(f"{done['existing']} were left alone because a file of "
+                     f"that name was already in {dest}")
+    if done["failed"] or done["unreadable"]:
+        notes.append(f"{done['failed'] or done['unreadable']} FAILED to encode "
+                     "and were not written")
+    if plan["unreachable"]:
+        notes.append(f"{plan['unreachable']} were skipped as unreachable "
+                     f"({plan['unreachable_by_reason']})")
+    if notes:
+        head += " " + "; ".join(notes) + "."
+    return f"{head}\n" + "\n".join(lines)
+
 
 @tool
 def remove_item(item_id: int, delete_file: bool = False):

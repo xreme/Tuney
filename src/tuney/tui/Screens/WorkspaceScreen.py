@@ -9,10 +9,11 @@ from textual.widgets import Header, Footer, Static
 from tuney import config
 from tuney.tui import layout
 from tuney.tui.layout import PaneLeaf, Split
-from tuney.tui.Modals import ScanModal
+from tuney.tui.Modals import ConvertModal, ScanModal
 from tuney.tui.Modals.PaneChooserModal import PaneChooserModal
 from tuney.tui.Panes import (
-    PANE_TYPES, Pane, CollectionPane, StatsBar, WishlistPane, pane_names)
+    PANE_TYPES, Pane, CollectionPane, ConvertPane, StatsBar, WishlistPane,
+    pane_names)
 
 
 class WorkspaceScreen(Screen):
@@ -49,7 +50,9 @@ class WorkspaceScreen(Screen):
         Binding("alt+1", "set_pane('collection')", "Collection here", show=False),
         Binding("alt+2", "set_pane('chat')", "Chat here", show=False),
         Binding("alt+3", "set_pane('settings')", "Settings here", show=False),
+        Binding("alt+4", "set_pane('convert')", "Convert here", show=False),
         Binding("ctrl+n,alt+n", "scan", "Scan"),
+        Binding("ctrl+k,alt+k", "convert", "Convert"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -329,3 +332,13 @@ class WorkspaceScreen(Screen):
 
     def action_scan(self) -> None:
         self.app.push_screen(ScanModal())
+
+    def action_convert(self) -> None:
+        pane = self._focused_pane()
+        # The convert pane's marked set, not the cursor, is what the user means
+        # there.
+        if isinstance(pane, ConvertPane):
+            pane.action_convert()
+            return
+        query = pane.selected_query() if isinstance(pane, CollectionPane) else ""
+        self.app.push_screen(ConvertModal(query))

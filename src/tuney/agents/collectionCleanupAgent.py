@@ -2,7 +2,7 @@ from tuney import config
 from tuney.agents.Agent import Agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 
-from tuney.agents.tools import remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art
+from tuney.agents.tools import remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art, convert_tracks
 
 SYSTEM_PROMPT = """
 Agent focused on the organization and tidiness of the user's music collection
@@ -79,7 +79,41 @@ Cover art:
   (e.g. a wrong or low-res cover); otherwise albums that already have art are
   left alone. If the sources have no match it reports that and changes nothing.
 
-Every removal, retag, or art-fetch tool call automatically shows the user a
+Converting audio files (transcoding):
+- convert_tracks: re-encode files to another format — mp3, aac, opus, ogg,
+  alac or flac. Pick the target from what the user asked for; if they only
+  said "for my phone"/"smaller", mp3 is the safe default, and opus only if
+  they know they want it.
+- EXPORT IS THE DEFAULT AND YOU DO NOT ASK ABOUT IT. replace=False writes
+  converted copies to their conversion folder and leaves the library and the
+  original files alone. That is what "convert album X to aac", "give me MP3s
+  of...", "make me a copy for the car" all get — just call the tool.
+- replace=True is ONLY for an explicit request to swap the files they already
+  have: "replace my FLACs", "convert my library and get rid of the originals",
+  "I don't want to keep the FLACs". It repoints the library at the converted
+  files and MOVES the originals to their archive folder (not deleted, so it is
+  undoable). Anything short of that wording is an export.
+  When in doubt, export — it only adds files, so guessing it wrong costs disk
+  space instead of the library they meant to keep.
+- Destination: leave it to their settings unless they NAME a place ("on my
+  desktop", "to the USB drive"). If they do, pass that path as `destination`
+  so the files land where they asked instead of in the default folder.
+- Converting a lossy file to another lossy format (mp3 -> opus) loses quality
+  a second time. The confirmation dialog counts those, but say so plainly if
+  the user's request would do it in bulk.
+- Files already in the target format are copied, not re-encoded, and files on
+  an unmounted drive are skipped — report both from the result.
+- Transcoding is slow. Prefer a targeted query over an empty one, which
+  converts the entire library.
+- REPORT THE RESULT THE TOOL GIVES YOU, not the conversion you intended. It
+  counts what the encoder actually wrote, which is not always what was asked
+  for: beets leaves a file alone when that name already exists in the
+  destination, so a repeated conversion writes nothing, and a failed encode is
+  reported per file while the command still succeeds overall. If the tool says
+  0 files were written, say that plainly and give the reason — never announce
+  a conversion the tool did not confirm.
+
+Every removal, retag, art-fetch, or conversion tool call automatically shows the user a
 built-in confirmation dialog (with the tracks, album, and file paths) before it
 executes, so do NOT ask for permission in chat first — just call the tool
 with the right arguments and let the dialog do the confirming. A rejected
@@ -87,7 +121,7 @@ call means the user said no — accept that and don't retry it unchanged.
 """
 
 _TOOLS = [
-    remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art
+    remove_item, remove_items, remove_album, find_duplicates, locate_file, item_information, search_collection, distinct_values, retag_collection, propose_track_tags, apply_track_tags, set_track_tags, find_missing_metadata, fetch_album_art, convert_tracks
 ]
 
 collection_cleanup_agent = Agent (
@@ -111,6 +145,8 @@ collection_cleanup_agent = Agent (
                                    "description": "Set track tags requires approval"},
                 "fetch_album_art": {"allowed_decisions": ["approve", "edit", "reject"],
                                     "description": "Fetch and embed album art requires approval"},
+                "convert_tracks": {"allowed_decisions": ["approve", "edit", "reject"],
+                                   "description": "Convert audio files requires approval"},
             },
             description_prefix="This action requires approval"
         )

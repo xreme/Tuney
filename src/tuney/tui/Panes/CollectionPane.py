@@ -41,10 +41,8 @@ class CollectionPane(Pane):
         ("ID", "id"),
     ]
 
-    # Fixed widths for the narrow columns; the three text columns share the rest.
-    YEAR_WIDTH = 6
-    FORMAT_WIDTH = 8
-    ID_WIDTH = 6
+    # Fixed-width fields; the text columns share whatever is left over.
+    FIXED_WIDTHS = {"year": 6, "format": 8, "id": 6}
     MIN_TEXT_WIDTH = 8
 
     # Rows go into the table in slices this big, yielding to the event loop
@@ -111,8 +109,10 @@ class CollectionPane(Pane):
 
     def _fingerprint(self, items) -> list[tuple]:
         """Identity plus every displayed field, so metadata edits count as
-        changes even though the track ids stay the same."""
-        return [(item.id, *(getattr(item, field) for _, field in self.COLUMNS))
+        changes even though the track ids stay the same. Columns that aren't
+        item fields (a subclass's checkbox) read as None."""
+        return [(item.id, *(getattr(item, field, None)
+                            for _, field in self.COLUMNS))
                 for item in items]
 
     def on_resize(self) -> None:
@@ -127,12 +127,9 @@ class CollectionPane(Pane):
         for label, field in self.COLUMNS:
             if field == self._sort_field:
                 label += " ▼" if self._sort_reverse else " ▲"
-            if field == "year":
-                table.add_column(label, width=self.YEAR_WIDTH)
-            elif field == "format":
-                table.add_column(label, width=self.FORMAT_WIDTH)
-            elif field == "id":
-                table.add_column(label, width=self.ID_WIDTH)
+            width = self.FIXED_WIDTHS.get(field)
+            if width is not None:
+                table.add_column(label, width=width)
             else:
                 self._text_keys.append(table.add_column(label))
 
@@ -201,6 +198,17 @@ class CollectionPane(Pane):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.query_one(DataTable).focus()
 
+    def selected_query(self) -> str:
+        """A beets query for the highlighted track, empty when nothing is
+        highlighted. Not derived from the filter box: that is a substring
+        match over the visible columns, not beets query syntax."""
+        table = self._table()
+        if table is None or table.cursor_row is None:
+            return ""
+        if 0 <= table.cursor_row < len(self._visible):
+            return f"id:{self._visible[table.cursor_row].id}"
+        return ""
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if 0 <= event.cursor_row < len(self._visible):
             self.app.push_screen(TrackDetailModal(self._visible[event.cursor_row]))
@@ -234,10 +242,12 @@ class CollectionPane(Pane):
             return
 
         # Render width consumed by the fixed columns (value + padding).
-        fixed = ((self.YEAR_WIDTH + pad) + (self.FORMAT_WIDTH + pad)
-                 + (self.ID_WIDTH + pad))
-        # Remaining space, split evenly across the three text columns' content.
-        each = max(self.MIN_TEXT_WIDTH, (available - fixed) // 3 - pad)
+        fixed = sum(self.FIXED_WIDTHS[field] + pad for _, field in self.COLUMNS
+                    if field in self.FIXED_WIDTHS)
+        # Remaining space, split evenly across the text columns' content.
+        text_columns = len(self._text_keys) or 1
+        each = max(self.MIN_TEXT_WIDTH,
+                   (available - fixed) // text_columns - pad)
 
         for key in self._text_keys:
             column = table.columns[key]
