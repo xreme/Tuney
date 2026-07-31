@@ -1,7 +1,7 @@
 import os
 
 import typer
-from tuney import library
+from tuney import config, library
 from tuney.wishlist import Wishlist
 
 app = typer.Typer()
@@ -68,6 +68,100 @@ def duplicates():
         typer.echo(f"{group[0].artist} - {group[0].title}")
         for item in group:
             typer.echo(f"  {item.filepath}")
+
+def _format_size(num_bytes: int) -> str:
+    if num_bytes >= 1_073_741_824:
+        return f"{num_bytes / 1_073_741_824:.1f} GB"
+    return f"{num_bytes / 1_048_576:.0f} MB"
+
+
+def _echo_plan(plan: dict, fmt: str, dest: str, replace: bool) -> None:
+    scope = "your ENTIRE library" if plan["whole_library"] else "the query"
+    typer.echo(f"{plan['matched']} tracks match {scope}.")
+    typer.echo(f"  to transcode: {plan['transcode']} "
+               f"({_format_size(plan['source_bytes'])} of source audio)")
+    if plan["skipped"]:
+        typer.echo(f"  already {fmt}: {plan['skipped']} (copied, not re-encoded)")
+    if plan["unreachable"]:
+        reasons = ", ".join(f"{count} {reason}"
+                            for reason, count in plan["unreachable_by_reason"].items())
+        typer.echo(f"  unreachable:  {plan['unreachable']} ({reasons}) — skipped")
+    if plan["lossy_reencode"]:
+        typer.secho(
+            f"  warning: {plan['lossy_reencode']} of these are lossy -> lossy "
+            "re-encodes, which lose quality.",
+            fg=typer.colors.YELLOW)
+    if replace:
+        typer.secho(
+            f"REPLACE mode: the library will point at the new {fmt} files.\n"
+            f"The original files are MOVED to {dest} — nothing is deleted.",
+            fg=typer.colors.YELLOW)
+    else:
+        typer.echo(f"Converted copies go to {dest}. "
+                   "Your library and originals are untouched.")
+
+
+@app.command()
+def convert(
+    query: str = typer.Argument("", help="Beets query. Empty converts everything."),
+    format: str = typer.Option(None, "--format", "-f",
+                               help=f"Target format: {', '.join(library.CONVERT_FORMATS)}."),
+    quality: str = typer.Option(None, "--quality", "-q",
+                                help="normal (smaller files, still good) or "
+                                     "best (maximum quality)."),
+    dest: str = typer.Option(None, "--dest", "-d",
+                             help="Destination folder (originals archive in --replace mode)."),
+    replace: bool = typer.Option(
+        False, "--replace",
+        help="Point the library at the converted files and move the originals "
+             "to --dest, instead of writing copies there."),
+    album: bool = typer.Option(False, "--album", "-a",
+                               help="Match whole albums rather than tracks."),
+    force: bool = typer.Option(False, "--force", "-F",
+                               help="Re-encode even files already in the target format."),
+    dry_run: bool = typer.Option(False, "--dry-run", "-p",
+                                 help="Show what beets would run, change nothing."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
+):
+    """Convert tracks to another audio format."""
+    cfg = config.get_config()
+    fmt = (format or cfg.convert_format).lower()
+    if fmt not in library.CONVERT_FORMATS:
+        typer.echo(f"Unknown format {fmt!r}. Choose from: "
+                   f"{', '.join(library.CONVERT_FORMATS)}")
+        raise typer.Exit(code=1)
+    tier = (quality or cfg.convert_quality).lower()
+    if tier not in library.CONVERT_QUALITIES:
+        typer.echo(f"Unknown quality {tier!r}. Choose from: "
+                   f"{', '.join(library.CONVERT_QUALITIES)}")
+        raise typer.Exit(code=1)
+    destination = dest or (cfg.convert_archive_path if replace
+                           else cfg.convert_dest_path)
+
+    plan = library.convert_plan(query, fmt, album=album, force=force)
+    if not plan["matched"]:
+        typer.echo("Nothing matched that query.")
+        raise typer.Exit(code=1)
+    _echo_plan(plan, fmt, destination, replace)
+    typer.echo(f"  quality: {tier} — {library.quality_summary(fmt, tier)}")
+
+    if not plan["transcode"] and not force:
+        typer.echo("Nothing to convert.")
+        return
+    if dry_run:
+        typer.echo("\n--- dry run ---")
+        typer.echo(library.convert(query, fmt, destination, replace=replace,
+                                   force=force, album=album, pretend=True,
+                                   quality=tier))
+        return
+    if not yes and not typer.confirm(f"\nConvert {plan['transcode']} tracks to {fmt}?"):
+        typer.echo("Aborted.")
+        raise typer.Exit
+
+    for line in library.convert_stream(query, fmt, destination, replace=replace,
+                                       force=force, album=album, quality=tier):
+        typer.echo(line)
+
 
 @app.command()
 def remove(id: int,
