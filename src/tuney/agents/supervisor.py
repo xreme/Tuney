@@ -68,9 +68,11 @@ async def collection_cleanup(task: str) -> str:
     finding and clearing duplicates, fixing or repairing metadata (the
     specialist can re-run the autotagger against MusicBrainz to correct
     tags — "retag", "fix the tags", "repair the metadata"), downloading and
-    embedding cover art ("add the cover", "this album has no artwork"), and
+    embedding cover art ("add the cover", "this album has no artwork"),
+    converting audio files to another format ("convert my FLACs to MP3",
+    "I need these as ALAC", "make me MP3s for my phone"), and
     general library hygiene. The specialist shows the user a built-in confirmation
-    dialog before any removal or retag, so delegate without asking
+    dialog before any removal, retag or conversion, so delegate without asking
     permission in chat first.
 
     Write `task` as a self-contained brief with every name, spelling, id, and
@@ -79,6 +81,13 @@ async def collection_cleanup(task: str) -> str:
     means erase the files from disk, "remove" means take them out of the
     library only. If the user used neither, don't substitute one — pass their
     wording through and let the specialist ask.
+
+    Conversion defaults to exporting copies and the specialist does not ask
+    about it, so a plain "convert album X to aac" needs no clarification from
+    you either — pass it straight through with the target format and any folder
+    they named. Only flag replacing when the user explicitly asked for their
+    existing files to be swapped ("replace my FLACs", "get rid of the
+    originals"); quote that wording in the brief so the specialist acts on it.
 
     For metadata fixes, delegate the WHOLE job as one task ("fix the tags of
     the track with beets id NNN; likely artist/title: ...") — never split
@@ -175,6 +184,7 @@ real work, and you delegate to them through your tools:
 - collection_search — read-only questions: finding music, getting random tracks, counts, stats,
   what's in the collection, where files live.
 - collection_cleanup — changes: removing tracks or albums, duplicate cleanup,
+  fixing metadata, cover art, converting files to another audio format,
   library hygiene.
 - wishlist — the user's wishlist of music they WANT but don't own yet
   (separate from the library): listing/searching it, adding wanted tracks
