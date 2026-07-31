@@ -1,6 +1,7 @@
 from .base import Pane
 from .CollectionPane import CollectionPane
 from .ChatPane import ChatPane
+from .ConvertPane import ConvertPane
 from .SettingsPane import SettingsPane
 from .WishlistPane import WishlistPane
 from .StatsBar import StatsBar
@@ -11,6 +12,7 @@ from .StatsBar import StatsBar
 PANE_TYPES = {
     "collection": CollectionPane,
     "chat": ChatPane,
+    "convert": ConvertPane,
     "settings": SettingsPane,
     "wishlist": WishlistPane,
 }
