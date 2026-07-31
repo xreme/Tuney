@@ -170,7 +170,7 @@ class Agent:
         return self._config()
 
     async def _consume(self, raw_stream):
-        from tuney.agents import confirmation
+        from tuney.agents import activity, confirmation
 
         stream = aiter(raw_stream)
         pending_next = None
@@ -188,12 +188,7 @@ class Agent:
                     timeout=_STREAM_INACTIVITY_TIMEOUT,
                 )
             except TimeoutError:
-                # A confirmation dialog keeps the stream legitimately quiet for
-                # as long as the user takes to decide (a mass removal shows many
-                # dialogs back to back). That's the user thinking, not the AI
-                # stalling — keep waiting on the same anext instead of killing
-                # the run.
-                if confirmation.is_pending():
+                if confirmation.is_pending() or activity.busy():
                     continue
                 pending_next.cancel()
                 raise RuntimeError(
