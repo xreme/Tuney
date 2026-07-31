@@ -1,3 +1,5 @@
+import os
+
 from textual import on, work
 from textual.app import ComposeResult
 from textual.css.query import NoMatches
@@ -29,6 +31,47 @@ class SettingsPane(Pane):
                 yield RadioButton("Off — import files as-is, no metadata lookup", id="autotag-off")
                 yield RadioButton("Safe — fix metadata, skip albums without a confident match", id="autotag-safe")
                 yield RadioButton("Keep — fix metadata, import uncertain albums with their existing tags", id="autotag-keep")
+
+            yield Static("Conversion", classes="section")
+            yield Static(
+                "Defaults for converting audio files. Every conversion still "
+                "asks before it runs.",
+                classes="hint",
+            )
+            with RadioSet(id="convert-format-set"):
+                yield RadioButton("MP3 — lossy, plays anywhere", id="cfmt-mp3")
+                yield RadioButton("AAC — lossy, Apple devices (.m4a)", id="cfmt-aac")
+                yield RadioButton("Opus — lossy, best quality per byte", id="cfmt-opus")
+                yield RadioButton("Ogg — lossy, Vorbis", id="cfmt-ogg")
+                yield RadioButton("ALAC — lossless, Apple devices (.m4a)", id="cfmt-alac")
+                yield RadioButton("FLAC — lossless", id="cfmt-flac")
+
+            yield Static(
+                "Default quality. For MP3/AAC/Opus/Ogg, Best raises the "
+                "bitrate; FLAC and ALAC are lossless, so Best only compresses "
+                "harder — the audio is identical either way.",
+                classes="hint",
+            )
+            with RadioSet(id="convert-quality-set"):
+                yield RadioButton("Normal — smaller files, still good quality",
+                                  id="cq-normal")
+                yield RadioButton("Best — maximum quality", id="cq-best")
+
+            yield Static("Where converted copies are written.", classes="hint")
+            yield Input(placeholder=config.default_convert_dest(),
+                        id="convert-dest-input")
+            yield Static(
+                "Where originals are moved when a conversion replaces them in "
+                "your library. They are never deleted, so a conversion you "
+                "regret can be undone from here.",
+                classes="hint",
+            )
+            yield Input(placeholder=config.default_convert_archive(),
+                        id="convert-archive-input")
+            with Horizontal():
+                yield Button("Save folders", id="convert-paths-save",
+                             variant="primary")
+                yield Button("Reset to defaults", id="convert-paths-reset")
 
             yield Static("OpenRouter API key", classes="section")
             yield Static(id="key-status", classes="hint")
@@ -81,6 +124,9 @@ class SettingsPane(Pane):
         self.query_one("#model-input", Input).value = cfg.chat_model
         self.query_one(f"#detail-{cfg.chat_detail}", RadioButton).value = True
         self.query_one(f"#autotag-{cfg.import_autotag}", RadioButton).value = True
+        self._sync_convert_defaults()
+        self.query_one("#convert-dest-input", Input).value = cfg.convert_dest
+        self.query_one("#convert-archive-input", Input).value = cfg.convert_archive
         self._refresh_key_status()
         self._refresh_lastfm_status()
         self.query_one("#about", Static).update(
@@ -89,6 +135,16 @@ class SettingsPane(Pane):
             f"Tracks indexed:   counting…"
         )
         self._load_track_count()
+
+    def on_show(self) -> None:
+        # The convert dialog writes the tier it ran at back to the config, so
+        # these can go stale while the pane sits in another tab.
+        self._sync_convert_defaults()
+
+    def _sync_convert_defaults(self) -> None:
+        cfg = config.get_config()
+        self.query_one(f"#cfmt-{cfg.convert_format}", RadioButton).value = True
+        self.query_one(f"#cq-{cfg.convert_quality}", RadioButton).value = True
 
     @work(thread=True)
     def _load_track_count(self) -> None:
@@ -149,6 +205,26 @@ class SettingsPane(Pane):
         cfg.save()
         self.notify(f"Import auto-tagging set to {mode}.")
 
+    @on(RadioSet.Changed, "#convert-format-set")
+    def on_convert_format_changed(self, event: RadioSet.Changed) -> None:
+        fmt = config.ConvertFormat(event.pressed.id.removeprefix("cfmt-"))
+        cfg = config.get_config()
+        if cfg.convert_format == fmt:     # on_mount preselection, not a change
+            return
+        cfg.convert_format = fmt
+        cfg.save()
+        self.notify(f"Conversion format set to {fmt}.")
+
+    @on(RadioSet.Changed, "#convert-quality-set")
+    def on_convert_quality_changed(self, event: RadioSet.Changed) -> None:
+        tier = config.ConvertQuality(event.pressed.id.removeprefix("cq-"))
+        cfg = config.get_config()
+        if cfg.convert_quality == tier:   # on_mount preselection, not a change
+            return
+        cfg.convert_quality = tier
+        cfg.save()
+        self.notify(f"Conversion quality set to {tier}.")
+
     @on(RadioSet.Changed, "#detail-set")
     def on_detail_changed(self, event: RadioSet.Changed) -> None:
         detail = config.ChatDetail(event.pressed.id.removeprefix("detail-"))
@@ -173,6 +249,27 @@ class SettingsPane(Pane):
         elif event.button.id == "model-reset":
             self.query_one("#model-input", Input).value = config.DEFAULT_CHAT_MODEL
             self._save_model(config.DEFAULT_CHAT_MODEL)
+        elif event.button.id == "convert-paths-save":
+            self._save_convert_paths()
+        elif event.button.id == "convert-paths-reset":
+            self.query_one("#convert-dest-input", Input).value = ""
+            self.query_one("#convert-archive-input", Input).value = ""
+            self._save_convert_paths()
+
+    def _save_convert_paths(self) -> None:
+        dest = self.query_one("#convert-dest-input", Input).value.strip()
+        archive = self.query_one("#convert-archive-input", Input).value.strip()
+        cfg = config.get_config()
+        # One folder for both would let a replace drop originals on top of
+        # exported copies.
+        if dest and archive and os.path.abspath(dest) == os.path.abspath(archive):
+            self.notify("The converted-copies folder and the originals archive "
+                        "must be different.", severity="error")
+            return
+        cfg.convert_dest = dest
+        cfg.convert_archive = archive
+        cfg.save()
+        self.notify("Conversion folders saved.")
 
     def _save_key(self) -> None:
         key_input = self.query_one("#key-input", Input)
