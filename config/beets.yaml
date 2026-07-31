@@ -1,10 +1,13 @@
-plugins: duplicates fetchart embedart
+plugins: duplicates fetchart embedart convert
 
 import:
   copy: no
   move: no
   write: yes
   duplicate_action: keep
+
+paths:
+  title::^$: Untagged/$id
 
 duplicates:
   keys: [artist, title]
@@ -20,3 +23,14 @@ fetchart:
 
 embedart:
   auto: no
+
+convert:
+  format: mp3
+  auto: no
+  auto_keep: no
+  quiet: no
+  write_metadata: yes
+  embed: yes
+  copy_album_art: yes
+  never_convert_lossy_files: no
+  delete_originals: no
