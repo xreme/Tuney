@@ -103,6 +103,7 @@ class TrackDetailModal(ModalScreen):
         ("escape", "close", "Close"),
         ("q", "close", "Close"),
         ("enter", "close", "Close"),
+        ("c", "convert", "Convert"),
     ]
 
     def __init__(self, item) -> None:
@@ -118,7 +119,8 @@ class TrackDetailModal(ModalScreen):
                 yield Static("Loading art…", id="detail-art")
                 with VerticalScroll(id="detail-fields-scroll", can_focus=False):
                     yield Static(self._fields_text(), id="detail-fields")
-            yield Label(r"\[esc]/\[enter] close | \[↑↓] scroll", id="detail-hint")
+            yield Label(r"\[c] convert | \[esc]/\[enter] close | \[↑↓] scroll",
+                        id="detail-hint")
 
     def on_mount(self) -> None:
         self._load_art()
@@ -177,6 +179,18 @@ class TrackDetailModal(ModalScreen):
             text.append(f"{label:>13}  ", style="bold")
             text.append(f"{value}\n")
         return text
+
+    def action_convert(self) -> None:
+        # Imported here: a top-level import would be circular through
+        # Modals/__init__.
+        from .ConvertModal import ConvertModal
+
+        item = self._item
+        name = str(item.title or "") or os.path.basename(os.fsdecode(item.path))
+        self.dismiss()
+        self.app.push_screen(ConvertModal(
+            query=f"id:{item.id}",
+            scope_label=f"{name} ({item.format or 'unknown format'})"))
 
     def action_close(self) -> None:
         self.dismiss()
