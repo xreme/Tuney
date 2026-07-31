@@ -1,5 +1,11 @@
 import os
+import re
+import shlex
 import subprocess
+import sys
+import tempfile
+from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 import beets
 from beets.library import Library
@@ -320,10 +326,9 @@ def set_item_fields(item, fields: dict):
     item.try_write()
 
 def retag(query: str = ""):
-    query = _fix_regex_flags(query)
     out = subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "import",
-         "-q", "-L", "--quiet-fallback=skip", *query.split()],
+         "-q", "-L", "--quiet-fallback=skip", *query_argv(query)],
         capture_output=True,
         text=True,
     )
@@ -342,8 +347,7 @@ def fetch_album_art(query: str = "", force: bool = False,
     whole library — allowed for fetching, but embedding is skipped in that case
     so an empty query can't rewrite every file. `force` re-downloads even for
     albums that already have art. Returns the combined beets log."""
-    query = _fix_regex_flags(query)
-    tokens = query.split()
+    tokens = query_argv(query)
 
     fetch_cmd = ["beet", "-c", str(CONFIG), "-l", str(DB), "fetchart"]
     if force:
@@ -365,6 +369,292 @@ def fetch_album_art(query: str = "", force: bool = False,
         log = f"{log}\n{emb_log}".strip()
 
     return log
+
+
+# --- conversion -------------------------------------------------------------
+#
+# Two modes: export writes converted copies to `dest`; replace transcodes in
+# place, repoints the library entry and MOVES the original to `dest`, which is
+# therefore an archive rather than output.
+
+CONVERT_FORMATS = tuple(str(f) for f in config.ConvertFormat)
+CONVERT_QUALITIES = tuple(str(q) for q in config.ConvertQuality)
+
+CONVERT_EXTENSIONS = {"aac": "m4a", "alac": "m4a"}
+
+# `-vn` drops embedded art, re-attached afterwards by tuney.convert_encoder;
+# ffmpeg cannot carry it through for Ogg or Opus. ALAC's tiers are the same
+# command because its encoder has no quality knob.
+CONVERT_ENCODERS = {
+    ("mp3", "normal"): "ffmpeg -i $source -y -vn -acodec libmp3lame -aq 4 $dest",
+    ("mp3", "best"): "ffmpeg -i $source -y -vn -acodec libmp3lame -b:a 320k $dest",
+    ("aac", "normal"): "ffmpeg -i $source -y -vn -acodec aac -b:a 160k $dest",
+    ("aac", "best"): "ffmpeg -i $source -y -vn -acodec aac -b:a 256k $dest",
+    ("opus", "normal"): "ffmpeg -i $source -y -vn -acodec libopus -b:a 96k $dest",
+    ("opus", "best"): "ffmpeg -i $source -y -vn -acodec libopus -b:a 192k $dest",
+    ("ogg", "normal"): "ffmpeg -i $source -y -vn -acodec libvorbis -aq 3 $dest",
+    ("ogg", "best"): "ffmpeg -i $source -y -vn -acodec libvorbis -aq 8 $dest",
+    ("flac", "normal"): "ffmpeg -i $source -y -vn -acodec flac -compression_level 5 $dest",
+    ("flac", "best"): "ffmpeg -i $source -y -vn -acodec flac -compression_level 12 $dest",
+    ("alac", "normal"): "ffmpeg -i $source -y -vn -acodec alac $dest",
+    ("alac", "best"): "ffmpeg -i $source -y -vn -acodec alac $dest",
+}
+
+CONVERT_BITRATES = {
+    ("mp3", "normal"): "~165 kbps VBR", ("mp3", "best"): "320 kbps",
+    ("aac", "normal"): "160 kbps", ("aac", "best"): "256 kbps",
+    ("opus", "normal"): "96 kbps", ("opus", "best"): "192 kbps",
+    ("ogg", "normal"): "~112 kbps VBR", ("ogg", "best"): "~256 kbps VBR",
+}
+
+
+def is_lossless(fmt: str) -> bool:
+    return str(fmt).lower() not in _LOSSY_NAMES
+
+
+def quality_is_meaningful(fmt: str) -> bool:
+    """False when both tiers are the same command, so no UI offers a choice
+    that does nothing."""
+    fmt = str(fmt).lower()
+    return (CONVERT_ENCODERS.get((fmt, "normal"))
+            != CONVERT_ENCODERS.get((fmt, "best")))
+
+
+def quality_summary(fmt: str, quality: str) -> str:
+    fmt, quality = str(fmt).lower(), str(quality).lower()
+    bitrate = CONVERT_BITRATES.get((fmt, quality))
+    if bitrate:
+        return (f"{bitrate} — smaller files, still good"
+                if quality == "normal" else
+                f"{bitrate} — the best {fmt.upper()} can do")
+    if not quality_is_meaningful(fmt):
+        return (f"{fmt.upper()} is lossless — identical audio either way, "
+                "with no quality setting")
+    return ("lossless, standard compression — identical audio, faster to encode"
+            if quality == "normal" else
+            "lossless, maximum compression — identical audio in a smaller "
+            "file, slower to encode")
+
+
+def _encoder_command(fmt: str, quality: str) -> str | None:
+    ffmpeg = CONVERT_ENCODERS.get((str(fmt).lower(), str(quality).lower()))
+    if ffmpeg is None:
+        return None
+    # beets substitutes $source/$dest after splitting, so they need no quoting;
+    # sys.executable is substituted here and does.
+    return (f"{shlex.quote(sys.executable)} -m tuney.convert_encoder "
+            f"$source $dest {ffmpeg}")
+
+
+@contextmanager
+def _convert_config(fmt: str, quality: str):
+    """A beets config for one conversion, with the encoder command for `fmt`
+    pinned to the chosen quality tier. The plugin reads that command from
+    configuration rather than argv, and registering `mp3_best` as its own
+    format instead would break beets' "already an MP3, copy it" check."""
+    command = _encoder_command(fmt, quality)
+    if command is None:
+        yield str(CONFIG)
+        return
+
+    import yaml
+
+    with open(CONFIG, encoding="utf-8") as handle:
+        settings = yaml.safe_load(handle) or {}
+    convert = settings.setdefault("convert", {})
+    convert.setdefault("formats", {})[str(fmt).lower()] = {
+        "command": command,
+        "extension": CONVERT_EXTENSIONS.get(str(fmt).lower(), str(fmt).lower()),
+    }
+
+    handle = tempfile.NamedTemporaryFile(
+        "w", suffix=".yaml", prefix="tuney-convert-", delete=False,
+        encoding="utf-8")
+    try:
+        yaml.safe_dump(settings, handle)
+        handle.close()
+        yield handle.name
+    finally:
+        handle.close()
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
+
+
+def query_argv(query: str) -> list[str]:
+    """Split a beets query into argv the way beets itself would. Must be
+    shlex, not str.split: `album:"Who Coppin"` is one term, and splitting on
+    whitespace yields two that beets ANDs and that match nothing."""
+    try:
+        return shlex.split(_fix_regex_flags(query))
+    except ValueError:
+        # Unbalanced quotes; beets rejects these too, so don't crash here.
+        return _fix_regex_flags(query).split()
+
+
+def ids_query(item_ids) -> str:
+    """A beets query matching exactly these ids. The bare comma is beets' OR;
+    `id:1 id:2` would AND them and match nothing."""
+    return " , ".join(f"id:{int(item_id)}" for item_id in item_ids)
+
+
+def _convert_command(query: str, fmt: str, dest: str, replace: bool = False,
+                     force: bool = False, album: bool = False,
+                     pretend: bool = False,
+                     config_path: str | None = None) -> list[str]:
+    # `-y` is mandatory: without it beets stops on an interactive prompt
+    # nothing in Tuney can answer.
+    command = ["beet", "-c", config_path or str(CONFIG), "-l", str(DB),
+               "convert", "-y", "-f", fmt, "-d", dest]
+    if replace:
+        command.append("--keep-new")
+    if force:
+        command.append("--force")
+    if album:
+        command.append("--album")
+    if pretend:
+        command.append("--pretend")
+    return command + query_argv(query)
+
+
+def _file_status(item) -> str:
+    if not item.path:
+        return "missing"
+    path = os.fsdecode(item.path)
+    if os.path.exists(path):
+        return "ok"
+    volume = _volume_root(path)
+    if volume is not None and not volume.exists():
+        return "unmounted"
+    return "missing"
+
+
+# Beets reports an item's format as a display name ("MP3", "Opus").
+_LOSSY_NAMES = frozenset(str(f) for f in config.LOSSY_FORMATS) | {"wma"}
+
+
+def convert_plan(query: str, fmt: str, album: bool = False,
+                 force: bool = False) -> dict:
+    """What a conversion would do, without running anything. `transcode`
+    counts files that would really be re-encoded; `skipped` those already in
+    the target format, which beets copies instead unless `force`."""
+    target = str(fmt).lower()
+    items = search(query) if query else all_items()
+    if album:
+        # Every track of a matched album, not just the tracks that matched.
+        album_ids = {item.album_id for item in items if item.album_id}
+        by_id = {item.id: item for item in items}
+        for album_id in album_ids:
+            found = get_album(album_id)
+            if found is not None:
+                for track in found.items():
+                    by_id.setdefault(track.id, track)
+        items = list(by_id.values())
+
+    transcode, skipped, lossy, source_bytes = [], [], 0, 0
+    formats: Counter = Counter()
+    unreachable: Counter = Counter()
+    for item in items:
+        current = (item.format or "").lower()
+        formats[item.format or "unknown"] += 1
+        status = _file_status(item)
+        if status != "ok":
+            unreachable[status] += 1
+            continue
+        if current == target and not force:
+            skipped.append(item)
+            continue
+        transcode.append(item)
+        try:
+            source_bytes += os.path.getsize(os.fsdecode(item.path))
+        except OSError:
+            pass
+        if current in _LOSSY_NAMES and target in _LOSSY_NAMES:
+            lossy += 1
+
+    return {
+        "matched": len(items),
+        "transcode": len(transcode),
+        "skipped": len(skipped),
+        "lossy_reencode": lossy,
+        "unreachable": sum(unreachable.values()),
+        "unreachable_by_reason": dict(unreachable),
+        "source_bytes": source_bytes,
+        "formats": dict(formats.most_common()),
+        "items": transcode,
+        "whole_library": not query,
+    }
+
+
+def convert(query: str, fmt: str, dest: str, replace: bool = False,
+            force: bool = False, album: bool = False,
+            pretend: bool = False,
+            quality: str = config.ConvertQuality.NORMAL) -> str:
+    """Convert the tracks matching `query` to `fmt`, returning the beets log.
+    In replace mode `dest` receives the originals rather than the output."""
+    if not pretend:
+        # A dry run must change nothing, and creating `dest` is a change.
+        os.makedirs(dest, exist_ok=True)
+    with _convert_config(fmt, quality) as config_path:
+        out = subprocess.run(
+            _convert_command(query, fmt, dest, replace, force, album, pretend,
+                             config_path),
+            capture_output=True,
+            text=True,
+        )
+    log = (out.stdout + out.stderr).strip()
+    if out.returncode != 0:
+        log += f"\n(beets convert exited with status {out.returncode})"
+    return log
+
+
+def convert_stream(query: str, fmt: str, dest: str, replace: bool = False,
+                   force: bool = False, album: bool = False,
+                   quality: str = config.ConvertQuality.NORMAL):
+    """`convert`, yielding the beets log line by line as it runs."""
+    os.makedirs(dest, exist_ok=True)
+    with _convert_config(fmt, quality) as config_path:
+        proc = subprocess.Popen(
+            _convert_command(query, fmt, dest, replace, force, album,
+                             config_path=config_path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in proc.stdout:
+            yield line.rstrip()
+        proc.wait()
+    if proc.returncode != 0:
+        yield f"(beets convert exited with status {proc.returncode})"
+
+
+# What beets prints per file, with `quiet: no` set in config/beets.yaml.
+_CONVERT_ENCODED = re.compile(r"^convert: Finished encoding ", re.M)
+_CONVERT_FAILED = re.compile(r"^convert: Encoding .* failed\.", re.M)
+_CONVERT_COPIED = re.compile(r"^convert: (?:Copying|Linking|Hardlinking) ", re.M)
+_CONVERT_EXISTING = re.compile(r"^convert: Skipping .* \(target file exists\)",
+                               re.M)
+_CONVERT_UNREADABLE = re.compile(r"^convert: Could not open file to convert",
+                                 re.M)
+
+
+def convert_outcome(log: str, exit_status: int | None = None) -> dict:
+    """What a conversion actually did, read back out of beets' own log: it
+    skips files whose target already exists and reports a failed encode per
+    file while still exiting 0, so neither shows in the plan or exit status."""
+    counts = {
+        "encoded": len(_CONVERT_ENCODED.findall(log)),
+        "failed": len(_CONVERT_FAILED.findall(log)),
+        "copied": len(_CONVERT_COPIED.findall(log)),
+        "existing": len(_CONVERT_EXISTING.findall(log)),
+        "unreadable": len(_CONVERT_UNREADABLE.findall(log)),
+    }
+    counts["wrote"] = counts["encoded"] + counts["copied"]
+    counts["ok"] = (counts["failed"] == 0
+                    and counts["unreadable"] == 0
+                    and (exit_status is None or exit_status == 0))
+    return counts
 
 
 def album_has_art(album_id: int) -> bool:
