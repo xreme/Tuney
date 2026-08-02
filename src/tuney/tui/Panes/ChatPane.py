@@ -13,15 +13,33 @@ from tuney.tui import chat_state
 from tuney.tui.Modals import ConfirmModal
 from textual import work
 from .base import Pane
+from . import mascot_frames
+from .mascot import Mascot, MascotState, resting_state
 
 
-MASCOT = r"""
-   ┌────────┐
-   │  O  O  │
-   │   ◡    │
-   │        │
- (_)      (_)
-"""
+# The supervisor's delegation tools, in the user's terms.
+_TOOL_LABELS = {
+    "collection_search": "Searching your collection",
+    "collection_cleanup": "Working on your library",
+    "wishlist": "Working on your wishlist",
+}
+
+_TOOL_ARG_ORDER = ("query", "album", "title", "artist", "fragment", "field",
+                   "format", "dir")
+
+
+def _tool_label(call: dict) -> str:
+    """One line naming the tool call in progress, e.g.
+    "Searching your collection" or "search_collection · artist:babytron"."""
+    name = call.get("name") or "working"
+    label = _TOOL_LABELS.get(name) or name.replace("_", " ")
+    args = call.get("args") or {}
+    detail = next((str(args[key]) for key in _TOOL_ARG_ORDER
+                   if args.get(key)), "")
+    detail = " ".join(detail.split())
+    if len(detail) > 60:
+        detail = detail[:59] + "…"
+    return f"{label} · {detail}" if detail else label
 
 
 class Message(Horizontal):
@@ -60,9 +78,8 @@ class ChatPane(Pane):
         align-horizontal: right;
     }
     #mascot {
+        /* Height and centring come from the Mascot widget itself. */
         width: 1fr;
-        height: auto;
-        text-align: center;
         margin-bottom: 1;
     }
     #dialog {
@@ -103,10 +120,11 @@ class ChatPane(Pane):
         height: auto;
         align-horizontal: right;
     }
-    #subagent-panel {
+    .subagent-panel {
+        width: 1fr;
         height: auto;
         max-height: 8;
-        margin: 0 2 1 2;
+        margin-bottom: 1;
         padding: 0 1;
         background: $panel;
         color: $text-muted;
@@ -174,19 +192,20 @@ class ChatPane(Pane):
                 yield Button("-", id="swap", variant="success")
             with Vertical(id="dialog"):
                 yield Static(id="dialog-spacer")
-                yield Static(MASCOT, id="mascot")
+                yield Mascot(id="mascot")
                 with VerticalScroll(id="ai-reply-scroll"):
                     yield Markdown("Hi, I'm Tuney! How can I help you?", id="ai-reply")
+                yield Static("", id="subagent-panel", classes="subagent-panel hidden")
                 yield Static("", id="user-query")
 
         with Vertical(id="history-view", classes="hidden"):
             with Horizontal(id="history-topbar"):
                 yield Button("-", id="swap-back", variant="success")
             yield VerticalScroll(id="history-scroll")
+            yield Static("", id="history-subagent-panel",
+                         classes="subagent-panel hidden")
 
-        # Live subagent activity and the run stopwatch sit just above the
-        # composer; both are visible in either view and collapse when idle.
-        yield Static("", id="subagent-panel", classes="hidden")
+        # The run stopwatch sits just above the composer, visible in either view.
         yield Static("", id="stopwatch", classes="hidden")
 
         with Horizontal(id="composer"):
@@ -199,6 +218,8 @@ class ChatPane(Pane):
         self._stopwatch_start = 0.0
         self._approve_all = False
         self._reject_all = False
+        self._mascot_state = MascotState.IDLE
+        self._run_changed_things = False
         if config.get_config().tui_chat_view == config.ChatView.HISTORY:
             self.action_swap()
         self._replay_transcript()
@@ -234,6 +255,8 @@ class ChatPane(Pane):
     def on_resize(self) -> None:
         self._cap_reply()
 
+    MIN_REPLY_HEIGHT = 3
+
     def _cap_reply(self) -> None:
         """Cap the reply panel's height so it hugs short replies but never grows
         far enough to push the user's query off-screen. The panel scrolls
@@ -243,14 +266,16 @@ class ChatPane(Pane):
             return
         dialog_height = self.query_one("#dialog").region.height
         query_height = self.query_one("#user-query").region.height
-        # The spacer bottom-anchors the whole mascot + reply + query group, so
-        # positions shift as the reply grows; work from heights instead. The
-        # mascot's 1-line bottom margin isn't in its region, and Textual never
-        # resolves a 1fr widget below 1 row, so reserve a row for the spacer
-        # too or the query gets pushed a line past the dialog.
-        mascot_height = self.query_one("#mascot").region.height + 1
-        available = dialog_height - mascot_height - query_height - 1
-        scroll.styles.max_height = max(3, available)
+        available = dialog_height - query_height - 1
+        panel = self.query_one("#subagent-panel", Static)
+        if not panel.has_class("hidden"):
+            available -= panel.region.height + 1
+        mascot_height = mascot_frames.HEIGHT + 1
+        too_short = available - mascot_height < self.MIN_REPLY_HEIGHT
+        self.query_one("#mascot", Mascot).set_class(too_short, "hidden")
+        if not too_short:
+            available -= mascot_height
+        scroll.styles.max_height = max(self.MIN_REPLY_HEIGHT, available)
 
     # ---- view toggling ----------------------------------------------------
 
@@ -269,15 +294,17 @@ class ChatPane(Pane):
             self._submit(self.query_one("#input", Input).value)
 
     def _update_subagents(self) -> None:
-        """Refresh the subagent activity banner (ticks twice a second).
-        Appears whenever specialists are running, collapses when idle."""
+        """Refresh both views' subagent activity banners (ticks twice a
+        second). They appear whenever specialists are running, and collapse
+        when idle."""
         from tuney.agents import activity
-        panel = self.query_one("#subagent-panel", Static)
+        self._refresh_mascot()
+        panels = self.query(".subagent-panel")
         runs = activity.snapshot()
-        was_hidden = panel.has_class("hidden")
+        was_hidden = self.query_one("#subagent-panel").has_class("hidden")
         if not runs:
             if not was_hidden:
-                panel.add_class("hidden")
+                panels.add_class("hidden")
                 self.call_after_refresh(self._cap_reply)
             return
         lines = []
@@ -285,11 +312,56 @@ class ChatPane(Pane):
             task = " ".join(run["task"].split())
             if len(task) > 70:
                 task = task[:69] + "…"
-            lines.append(f"⚙ {run['agent']} · {run['elapsed']:.0f}s — {task}")
-        panel.update("\n".join(lines))
+            doing = f" · {run['tool']}" if run.get("tool") else ""
+            lines.append(
+                f"⚙ {run['agent']} · {run['elapsed']:.0f}s{doing} — {task}")
+        text = "\n".join(lines)
+        for panel in panels.results(Static):
+            panel.update(text)
         if was_hidden:
-            panel.remove_class("hidden")
+            panels.remove_class("hidden")
             self.call_after_refresh(self._cap_reply)
+
+    # ---- mascot ------------------------------------------------------------
+
+    # States a long tool call or a running specialist may speak over.
+    MASCOT_OVERRIDABLE = (MascotState.THINKING, MascotState.TALKING)
+
+    def _set_mascot(self, state: MascotState) -> None:
+        """Show `state` now, and record where it leaves the mascot."""
+        self._mascot_state = resting_state(state)
+        self._apply_mascot(state)
+
+    def _set_mascot_for_run(self, gen: int, state: MascotState) -> None:
+        """Set the mascot only if `gen` is still the live run — a superseded
+        run finishing must not stomp its replacement."""
+        if gen == self._stopwatch_gen:
+            self._set_mascot(state)
+
+    def _refresh_mascot(self) -> None:
+        """Apply the run's resting state, letting live activity speak over
+        it. Defers to a one-shot that's still playing."""
+        from tuney.agents import activity
+        try:
+            mascot = self.query_one("#mascot", Mascot)
+        except NoMatches:
+            return                      # pane is being torn down
+        if mascot.is_playing_one_shot:
+            return
+        state = self._mascot_state
+        if state in self.MASCOT_OVERRIDABLE:
+            if activity.busy():
+                state = MascotState.WORKING
+            elif activity.snapshot():
+                state = MascotState.DELEGATING
+        mascot.set_state(state)
+
+    def _apply_mascot(self, state: MascotState) -> None:
+        try:
+            self.query_one("#mascot", Mascot).set_state(state)
+        except NoMatches:
+            # Pane is being torn down; the widget is already gone.
+            pass
 
     # ---- chat detail -------------------------------------------------------
 
@@ -358,7 +430,9 @@ class ChatPane(Pane):
         # starts with confirmations back on.
         self._approve_all = False
         self._reject_all = False
+        self._run_changed_things = False
         self._set_focus_exchange(query=text, reply="Thinking...")
+        self._set_mascot(MascotState.THINKING)
         self._append_history(text, "user")
         live = self._append_history("Thinking...", "ai")
         self._run_query(text, live)
@@ -375,6 +449,7 @@ class ChatPane(Pane):
         """
         reject = {"type": "reject", "message": "The user declined this action."}
         decisions = []
+        resume = self._mascot_state
         for position, request in enumerate(requests, start=1):
             if self._approve_all:
                 decisions.append({"type": "approve"})
@@ -382,6 +457,7 @@ class ChatPane(Pane):
             if self._reject_all:
                 decisions.append(reject)
                 continue
+            self._set_mascot(MascotState.WAITING)
             result = await self.app.push_screen_wait(
                 ConfirmModal(request, position=position, total=len(requests)))
             if result == "all":
@@ -393,15 +469,23 @@ class ChatPane(Pane):
                 self.notify("Rejecting everything for the rest of this run.")
             decisions.append({"type": "approve"} if result == "all" or result is True
                              else reject)
+        # Every gated action changes the library, so an approved one is what
+        # makes a run worth celebrating; see `_run_query`.
+        if any(d["type"] == "approve" for d in decisions):
+            self._run_changed_things = True
+        self._set_mascot(resume)
         return decisions
 
     @work(exclusive = True)
     async def _run_query(self, text: str, live: Message):
+        from tuney.agents import activity
         from tuney.agents.confirmation import set_confirmation_handler
         from tuney.agents.supervisor import tuney_agent
 
         set_confirmation_handler(self._confirm)
         stopwatch = self._start_stopwatch()
+        long_tasks_before = activity.completed_long_tasks()
+        changes_before = activity.recorded_changes()
 
         reply = self.query_one("#ai-reply", Markdown)
         scroll = self.query_one("#ai-reply-scroll")
@@ -410,6 +494,7 @@ class ChatPane(Pane):
         parts: list[str] = []
         thinking: list[str] = []
         streams: list = []
+        active: list[dict] = []     # tool calls in flight, in call order
 
         async def _streams():
             if not streams:
@@ -419,14 +504,21 @@ class ChatPane(Pane):
                 streams.append(Markdown.get_stream(hist_md))
             return streams
 
-        async def _show_thinking():
-            trace = "".join(thinking)
+        def _thinking_text() -> str:
+            trace = "".join(thinking).strip()
             tail = trace[-self.THINKING_TAIL_CHARS:]
             if len(trace) > self.THINKING_TAIL_CHARS:
                 # Cut at a word boundary so the tail doesn't open mid-word.
                 tail = "…" + tail.split(" ", 1)[-1]
             quoted = "\n".join(f"> {line}" for line in tail.splitlines())
-            status = f"Thinking...\n\n{quoted}"
+            return f"Thinking...\n\n{quoted}"
+
+        async def _show_status():
+            """What the agent is doing, while the answer itself hasn't started.
+            A tool in flight wins over the reasoning trace, which by then is
+            finished business."""
+            status = ("\n".join(f"⚙ {_tool_label(call)}" for call in active)
+                      if active else _thinking_text())
             await reply.update(status)
             await hist_md.update(status)
             history.scroll_end(animate=False)
@@ -442,8 +534,29 @@ class ChatPane(Pane):
                 if kind == "reasoning":
                     if not streams:         # answer hasn't started yet
                         thinking.append(token)
-                        await _show_thinking()
+                        await _show_status()
                     continue
+                if kind == "tool":
+                    # A resumed run replays the message carrying the tool call,
+                    # so the same call can arrive twice.
+                    if token not in active:
+                        active.append(token)
+                    thinking.clear()
+                    if not streams:
+                        await _show_status()
+                    continue
+                if kind == "tool_done":
+                    # Matched by name: results come back in completion order,
+                    # and two calls to one tool are interchangeable here.
+                    for i, call in enumerate(active):
+                        if call["name"] == token["name"]:
+                            active.pop(i)
+                            break
+                    if not streams:
+                        await _show_status()
+                    continue
+                if not streams:         # first token of the answer proper
+                    self._set_mascot(MascotState.TALKING)
                 parts.append(token)
                 for s in await _streams():
                     await s.write(token)
@@ -465,10 +578,12 @@ class ChatPane(Pane):
                            else "*(interrupted)*")
             hist_md.update(interrupted)
             self._record_exchange(text, live, interrupted)
+            self._set_mascot_for_run(stopwatch, MascotState.INTERRUPTED)
             raise
         except Exception as e:
             from tuney.agents.Agent import error_detail
             self.log.error(f"agent stream failed: {e!r}")
+            self._set_mascot_for_run(stopwatch, MascotState.ERROR)
             parts.append(f"\n\n**[error]** {error_detail(e)}")
             for s in await _streams():
                 await s.write(parts[-1])
@@ -488,6 +603,15 @@ class ChatPane(Pane):
             await hist_md.update("(no response)")
         history.scroll_end(animate=False)
         self._record_exchange(text, live, "".join(parts) or "(no response)")
+        # Celebrate real work, not every answered question. The error path
+        # falls through to here too, so leave its state alone.
+        heavy = activity.completed_long_tasks() > long_tasks_before
+        changed = activity.recorded_changes() > changes_before
+        if self._mascot_state is not MascotState.ERROR:
+            self._set_mascot_for_run(
+                stopwatch,
+                MascotState.DONE if heavy or changed or self._run_changed_things
+                else MascotState.IDLE)
 
     def _record_exchange(self, query: str, live: Message, final: str) -> None:
         """Persist the finished reply to the transcript store so a rebuilt
