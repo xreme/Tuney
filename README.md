@@ -28,10 +28,10 @@ virtual environment. Converting audio files also needs
 Two optional API keys unlock the AI and richer metadata search. Both can be set
 under **Settings** in the TUI, where they are saved to your system keychain:
 
-| Key | What it enables |
-| --- | --- |
-| OpenRouter | The chat assistant. Without it, everything else still works. |
-| Last.fm | Wishlist searches merge Last.fm results with MusicBrainz, adding releases MusicBrainz never catalogued, plus listener counts and tags. |
+| Key        | What it enables                                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenRouter | The chat assistant. Without it, everything else still works.                                                                           |
+| Last.fm    | Wishlist searches merge Last.fm results with MusicBrainz, adding releases MusicBrainz never catalogued, plus listener counts and tags. |
 
 ## Features
 
@@ -68,6 +68,14 @@ its options.
 
 Inside the TUI, `↑`/`↓` moves, `Enter` selects, `Escape` goes back and `q`
 quits.
+
+## Model evaluation
+
+Tuney's agents are benchmarked against a fixed set of use cases,
+scoring each candidate model on whether it took the right tool trajectory as
+well as on latency, token use and cost. The scripts live in
+[scripts/agent-evals/](scripts/agent-evals/), and each run writes a CSV to
+[scripts/agent-evals/results/](scripts/agent-evals/results/).
 
 ## Technologies
 
