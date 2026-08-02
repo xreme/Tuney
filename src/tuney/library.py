@@ -737,6 +737,16 @@ def get_item(item_id: int):
     return lib.get_item(item_id)
 
 def get_album(album_id: int):
+    """The album with this id, or None if there isn't one.
+
+    Ids reaching us straight from the agent's tool call arrive as whatever the
+    model emitted — often the string "1098". beets reads any non-int as an
+    Item and asks it for `.album_id`, so coerce before handing it over.
+    """
+    try:
+        album_id = int(album_id)
+    except (TypeError, ValueError):
+        return None
     lib = _beets_library()
     return lib.get_album(album_id)
 
@@ -758,6 +768,121 @@ def _name_key(artist: str, title: str) -> tuple[str, str]:
     return norm(artist), norm(_RELEASE_SUFFIX.sub("", title.strip()))
 
 
+def _collection_index() -> tuple[dict[str, int], dict[tuple, int]]:
+    """One pass over the collection, indexed the two ways an owned track is
+    recognized: by MusicBrainz recording id, and by normalized artist+title
+    (see `_name_key`). Loading every beets item is the expensive part of any
+    ownership question, so callers index once and look up many times."""
+    by_mb: dict[str, int] = {}
+    by_name: dict[tuple, int] = {}
+    for item in all_items():
+        if item.mb_trackid:
+            by_mb.setdefault(item.mb_trackid, item.id)
+        if item.artist and item.title:
+            by_name.setdefault(_name_key(item.artist, item.title), item.id)
+    return by_mb, by_name
+
+
+def _indexed_id(entry: dict, by_mb: dict, by_name: dict) -> int | None:
+    """The collection track id matching a {mb_id, artist, title} entry, or
+    None. Prefers the recording id; falls back to the normalized name, which
+    catches the same song ripped from a different release."""
+    beets_id = by_mb.get(entry.get("mb_id") or None)
+    if beets_id is None and entry.get("artist") and entry.get("title"):
+        beets_id = by_name.get(_name_key(entry["artist"], entry["title"]))
+    return beets_id
+
+
+def owned_ids(entries: list[dict]) -> list[int | None]:
+    """For each {mb_id, artist, title} entry, the id of the collection track
+    the user already owns for it — None where they don't. Positional: the
+    result lines up with `entries`.
+
+    Same matching rules as `reconcile_wishlist`, so "already owned" means the
+    same thing whether it is decided before an add or after one. Costs a single
+    collection scan regardless of how many entries are checked."""
+    if not entries:
+        return []
+    by_mb, by_name = _collection_index()
+    return [_indexed_id(entry, by_mb, by_name) for entry in entries]
+
+
+def collection_albums(artist: str = "") -> dict[str, int]:
+    """Every album in the collection with how many of its tracks the user
+    owns, most tracks first — optionally narrowed to one artist.
+
+    The artist match is a normalized substring against both `artist` and
+    `albumartist`, so "babytron" finds the collaboration tracks credited to
+    "BabyTron & Certified Trapper" and the compilations filed under a various
+    -artists album artist. This answers "which albums by X do I have?" in one
+    complete result, which a paginated track search cannot: page one of a 350
+    -track artist shows a fraction of their albums and reads exactly like the
+    whole set."""
+    needle = _norm(artist)
+    counts = Counter()
+    for item in all_items():
+        if needle and needle not in _norm(item.artist) and \
+                needle not in _norm(getattr(item, "albumartist", "")):
+            continue
+        if item.album:
+            counts[item.album] += 1
+    return dict(counts.most_common())
+
+
+def find_tracks(artist: str, title: str) -> list[dict]:
+    """Collection tracks whose title matches `title` and whose credit mentions
+    `artist`, as [{id, artist, title, album}, ...].
+
+    Deliberately looser than `owned_ids`: the artist match is a normalized
+    substring against `artist` and `albumartist`, so asking about "BabyTron"
+    finds "Beetleborgs" credited to "BabyTron & Cordae". That tolerance is
+    right here and wrong there — this only answers a read-only "do they have
+    this?", while `owned_ids` decides whether to skip an add or write an
+    acquired status, where a false positive silently loses something the user
+    asked for. A false NEGATIVE here, though, is the more dangerous error: it
+    tells the user a record is missing from a library that has it."""
+    wanted = _name_key(artist or "", title or "")[1]
+    credit = _norm(artist)
+    if not wanted:
+        return []
+    found = []
+    for item in all_items():
+        if _name_key("", item.title or "")[1] != wanted:
+            continue
+        if credit and credit not in _norm(item.artist) and \
+                credit not in _norm(getattr(item, "albumartist", "")):
+            continue
+        found.append({"id": item.id, "artist": item.artist,
+                      "title": item.title, "album": item.album})
+    return found
+
+
+def match_album(albums: dict[str, int], album: str) -> dict:
+    """Look one album name up in a `collection_albums` result, as
+    {"exact": [name, count] | None, "related": [[name, count], ...]}.
+
+    A pure lookup over an already-scanned collection, so a caller that wants
+    both the verdict and the full album list pays for one scan. `exact` is a
+    normalized name match. `related` holds albums whose name contains (or is
+    contained by) the one asked about — the edition problem: someone who owns
+    "6 (Deluxe Edition)" does not own an album called "6" by this function's
+    reckoning, and saying so without showing the near-miss is how a caller ends
+    up telling the user they don't have a record they plainly do."""
+    wanted = _norm(album)
+    if not wanted:
+        return {"exact": None, "related": []}
+    exact, related = None, []
+    for name, count in albums.items():
+        found = _norm(name)
+        if found == wanted:
+            exact = [name, count]
+        elif wanted in found or found in wanted:
+            related.append([name, count])
+    # Near-misses only matter when there is no direct answer: "Bin Reaper" is a
+    # distraction once "Bin Reaper 3" itself is confirmed owned.
+    return {"exact": exact, "related": [] if exact else related}
+
+
 def reconcile_wishlist(wishlist) -> list[dict]:
     """Auto-detect which wishlist items the user now owns and mark them
     acquired. For every not-yet-acquired item found in the collection, sets
@@ -777,19 +902,11 @@ def reconcile_wishlist(wishlist) -> list[dict]:
     if not pending:
         return []
 
-    by_mb: dict[str, int] = {}
-    by_name: dict[tuple, int] = {}
-    for item in all_items():
-        if item.mb_trackid:
-            by_mb.setdefault(item.mb_trackid, item.id)
-        if item.artist and item.title:
-            by_name.setdefault(_name_key(item.artist, item.title), item.id)
+    by_mb, by_name = _collection_index()
 
     updated: list[dict] = []
     for entry in pending:
-        beets_id = by_mb.get(entry.get("mb_id") or None)
-        if beets_id is None and entry.get("artist") and entry.get("title"):
-            beets_id = by_name.get(_name_key(entry["artist"], entry["title"]))
+        beets_id = _indexed_id(entry, by_mb, by_name)
         if beets_id is not None:
             wishlist.update_item(
                 entry["id"], {"status": "acquired", "acquired_id": beets_id})
