@@ -11,7 +11,7 @@ import beets
 from beets.library import Library
 from platformdirs import PlatformDirs
 
-from tuney import config, lastfm
+from tuney import config, dbservice, lastfm
 
 beets.config.read()
 CONFIG = Path("config/beets.yaml")
@@ -19,7 +19,14 @@ dirs = PlatformDirs("Tuney")
 os.makedirs(dirs.user_data_path, exist_ok=True)
 DB = dirs.user_data_path/"Tuney.db"
 
-# TODO implement library singleton
+_wal_enabled = False
+
+def _beets_library() -> Library:
+    global _wal_enabled
+    if not _wal_enabled:
+        dbservice.enable_wal(DB)
+        _wal_enabled = True
+    return Library(DB)
 
 def _import_flags():
     mode = config.get_config().import_autotag
@@ -706,7 +713,7 @@ def _fix_regex_flags(query: str) -> str:
     return " ".join(fix(token) for token in query.split(" "))
 
 def search(query):
-    lib = Library(DB)
+    lib = _beets_library()
     return list(lib.items(_fix_regex_flags(query)))
 
 def search_by_filename(fragment):
@@ -722,15 +729,15 @@ def search_including_filenames(query):
     return items
 
 def all_items():
-    lib = Library(DB)
+    lib = _beets_library()
     return list(lib.items())
         
 def get_item(item_id: int):
-    lib = Library(DB)
+    lib = _beets_library()
     return lib.get_item(item_id)
 
 def get_album(album_id: int):
-    lib = Library(DB)
+    lib = _beets_library()
     return lib.get_album(album_id)
 
 
@@ -825,7 +832,7 @@ def duplicates():
         capture_output=True,
         text=True,
     )
-    lib = Library(DB)
+    lib = _beets_library()
     groups = {}
     for line in out.stdout.splitlines():
         # The plugin prints "<id>: <number of copies>" per item.

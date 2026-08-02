@@ -5,7 +5,7 @@ import tempfile
 import time
 import unittest
 
-from tuney import library
+from tuney import dbservice, library
 from tuney.agents import wishlist_tools
 from tuney.wishlist import Wishlist
 
@@ -19,7 +19,8 @@ class WishlistDataLayerTest(unittest.TestCase):
         self.wl = Wishlist(self.path)
 
     def tearDown(self):
-        self.wl.connection.close()
+        self.wl.close()
+        dbservice.shutdown(self.path)
         os.unlink(self.path)
 
     def _reopen(self) -> Wishlist:
@@ -104,16 +105,23 @@ class WishlistDataLayerTest(unittest.TestCase):
     def test_context_manager_closes_connection(self):
         with Wishlist(self.path) as wl:
             new_id = wl.add_item(artist="A", title="B")
-        # The write committed before close, and the connection is now closed.
+        # The write committed before close, and the handle is now unusable.
         self.assertEqual(self._reopen().get_item(new_id)["title"], "B")
         with self.assertRaises(sqlite3.ProgrammingError):
-            wl.connection.execute("SELECT 1")
+            wl.all_items()
 
     def test_close_is_explicit(self):
         wl = Wishlist(self.path)
         wl.close()
         with self.assertRaises(sqlite3.ProgrammingError):
-            wl.connection.execute("SELECT 1")
+            wl.all_items()
+
+    def test_closing_one_handle_leaves_others_working(self):
+        """A pane or modal closing its handle must not disturb a long-lived
+        one, since they share a connection."""
+        other = Wishlist(self.path)
+        other.close()
+        self.assertEqual(self.wl.add_item(artist="A", title="B"), 1)
 
     def test_remove_items_ignores_empty_and_missing_ids(self):
         ids = [self.wl.add_item(artist="A", title="B") for _ in range(2)]
@@ -146,7 +154,8 @@ class ReconcileTest(unittest.TestCase):
 
     def tearDown(self):
         library.all_items = self._real_all_items
-        self.wl.connection.close()
+        self.wl.close()
+        dbservice.shutdown(self.path)
         os.unlink(self.path)
 
     def _collection(self, *tracks):
@@ -236,7 +245,8 @@ class AddWishlistToolTest(unittest.TestCase):
 
     def tearDown(self):
         wishlist_tools._wishlist = self._saved
-        self.wl.connection.close()
+        self.wl.close()
+        dbservice.shutdown(self.path)
         os.unlink(self.path)
 
     def test_add_item_returns_full_row_not_just_id(self):
@@ -309,7 +319,8 @@ class RemoveWishlistToolTest(unittest.TestCase):
 
     def tearDown(self):
         wishlist_tools._wishlist = self._saved
-        self.wl.connection.close()
+        self.wl.close()
+        dbservice.shutdown(self.path)
         os.unlink(self.path)
 
     def test_remove_items_reports_count_and_removed_rows(self):

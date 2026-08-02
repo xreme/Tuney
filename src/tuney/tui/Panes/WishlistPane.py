@@ -297,12 +297,18 @@ class WishlistPane(Pane):
         row = self.query_one(DataTable).cursor_row
         if not (0 <= row < len(self._visible)):
             return
-        item = self._visible[row]
+        self._delete(self._visible[row])
+
+    @work(thread=True)
+    def _delete(self, item: dict) -> None:
+        # Off the event loop: the write waits on any other writer in the
+        # process, and a stalled keypress reads as a frozen app.
         with Wishlist(library.DB) as wishlist:
             wishlist.remove_item(item["id"])
         label = (f"{item.get('artist', '')} - {item.get('title', '')}"
                  .strip(" -") or f"item {item['id']}")
-        self.notify(f"Removed “{label}” from the wishlist.")
+        self.app.call_from_thread(
+            self.notify, f"Removed “{label}” from the wishlist.")
         # Nothing new can have been acquired by a removal — skip the reconcile scan.
         self.reload(reconcile=False)
 

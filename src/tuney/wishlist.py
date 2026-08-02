@@ -1,5 +1,7 @@
 import sqlite3
 
+from tuney import dbservice
+
 class Wishlist:
 
     # Columns update_item is allowed to set. `id`/`date_added` are immutable and
@@ -9,22 +11,8 @@ class Wishlist:
         "notes", "priority", "status", "acquired_id",
     )
 
-    def _connect(self, db_path):
-        # check_same_thread=False: the TUI reads the wishlist from a worker
-        # thread (WishlistPane.reload) while the rest of the app uses it on the
-        # main thread. Access is light and SQLite serializes writes, so one
-        # shared connection is fine.
-        #
-        # timeout: Tuney.db is shared with the beets library, so several
-        # connections (this one, the pane's reload thread, the agent's tools)
-        # can try to write at once — e.g. a mass removal while the pane's
-        # reconcile pass is running. Without a generous busy timeout the loser
-        # of that race fails immediately with "database is locked"; 30s lets it
-        # wait for the other writer to commit instead.
-        return sqlite3.connect(db_path, check_same_thread=False, timeout=30)
-
     def _create_table(self):
-        self.connection.execute(
+        self._write(lambda connection: connection.execute(
             '''
             CREATE TABLE IF NOT EXISTS wishlist(
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,22 +29,32 @@ class Wishlist:
                 acquired_id         INTEGER
             );
             '''
-        )
-        self.connection.commit()
+        ))
 
     def __init__(self, db_path):
+        # No connection of its own: statements run on this thread's connection
+        # to the shared database (see tuney/dbservice.py).
         self.db_path = db_path
-        self.connection = self._connect(db_path)
-        self.connection.row_factory = sqlite3.Row
+        self._service = dbservice.service(db_path)
+        self._closed = False
         self._create_table()
 
+    def _read(self, work):
+        self._check_open()
+        return self._service.read(work)
+
+    def _write(self, work):
+        self._check_open()
+        return self._service.write(work)
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise sqlite3.ProgrammingError("Cannot operate on a closed Wishlist.")
+
     def close(self) -> None:
-        """Release the underlying SQLite connection. Transient callers (the TUI
-        pane's reload/reconcile, the modals) open a Wishlist per operation
-        against a DB shared with beets; leaving those connections open holds
-        locks that later reads/writes then wait on, which is what left the
-        wishlist pane stuck on 'loading…'. Prefer the context-manager form."""
-        self.connection.close()
+        """Stop using the wishlist through this object. Connections are shared
+        and outlive any one Wishlist, so this only marks the instance closed."""
+        self._closed = True
 
     def __enter__(self) -> "Wishlist":
         return self
@@ -75,34 +73,37 @@ class Wishlist:
         priority: int = 0,
         status: str = "wanted",
     ) -> int:
-        cur = self.connection.execute(
-            '''
-                INSERT INTO wishlist (artist, title, album, year, mb_id, notes, priority, status)
-                VALUES (?,?,?,?,?,?,?,?)
-            ''',
-            (artist,title,album,year,mb_id,notes,priority,status)
-        ) 
+        def work(connection):
+            cur = connection.execute(
+                '''
+                    INSERT INTO wishlist (artist, title, album, year, mb_id, notes, priority, status)
+                    VALUES (?,?,?,?,?,?,?,?)
+                ''',
+                (artist,title,album,year,mb_id,notes,priority,status)
+            )
+            return cur.lastrowid
 
-        self.connection.commit()
-        return cur.lastrowid 
+        return self._write(work)
 
     def remove_item(self, id: int) -> None:
-        self.connection.execute("DELETE FROM wishlist WHERE id = ?", (id,))
-        self.connection.commit()
+        self._write(lambda connection: connection.execute(
+            "DELETE FROM wishlist WHERE id = ?", (id,)))
 
     def remove_items(self, ids) -> int:
         ids = [int(i) for i in ids]
         if not ids:
             return 0
         placeholders = ",".join("?" * len(ids))
-        cur = self.connection.execute(
-            f"DELETE FROM wishlist WHERE id IN ({placeholders})", ids)
-        self.connection.commit()
-        return cur.rowcount
+
+        def work(connection):
+            cur = connection.execute(
+                f"DELETE FROM wishlist WHERE id IN ({placeholders})", ids)
+            return cur.rowcount
+
+        return self._write(work)
 
     def clear_wishlist(self) -> None:
-        self.connection.execute("DELETE FROM wishlist")
-        self.connection.commit()
+        self._write(lambda connection: connection.execute("DELETE FROM wishlist"))
 
     def update_item(self, id: int, fields: dict) -> None:
         # Only touch known columns so a stray/hostile key can't be spliced into
@@ -112,18 +113,21 @@ class Wishlist:
             return
         assignments = ", ".join(f"{name} = ?" for name in columns)
         values = [fields[name] for name in columns]
-        self.connection.execute(
+        self._write(lambda connection: connection.execute(
             f"UPDATE wishlist SET {assignments}, date_updated = datetime('now')"
             " WHERE id = ?",
             (*values, id),
-        )
-        self.connection.commit()
+        ))
 
     def all_items(self) -> list[dict]:
-        return [dict(r) for r in self.connection.execute("SELECT * FROM wishlist")]
+        return self._read(lambda connection: [
+            dict(r) for r in connection.execute("SELECT * FROM wishlist")])
 
     def get_item(self, id: int) -> dict | None:
-        row = self.connection.execute(
-            "SELECT * FROM wishlist WHERE id = ?", (id,)
-        ).fetchone()
-        return dict(row) if row else None
+        def work(connection):
+            row = connection.execute(
+                "SELECT * FROM wishlist WHERE id = ?", (id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._read(work)
