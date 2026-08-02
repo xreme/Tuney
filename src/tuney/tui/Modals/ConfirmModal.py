@@ -123,6 +123,17 @@ class ConfirmModal(ModalScreen[bool | str]):
         except Exception:
             return None
 
+    @staticmethod
+    def _track_label(item) -> str:
+        """A track's title, falling back to its filename. An id says nothing
+        about what is about to be deleted."""
+        title = str(item.title or "").strip()
+        if title:
+            return title
+        if item.path:
+            return os.path.basename(os.fsdecode(item.path))
+        return f"item {item.id}"
+
     def _item_fields(self, item_id) -> tuple[str, str | None, str | None, str | None]:
         """(title, artist, album, path) for an id, with fallbacks for bad ids."""
         item = self._lookup_item(item_id)
@@ -130,7 +141,7 @@ class ConfirmModal(ModalScreen[bool | str]):
             return f"item {item_id}", None, None, None
         fields = dict(item)
         return (
-            str(fields.get("title") or f"item {item_id}"),
+            self._track_label(item),
             str(fields.get("artist") or "") or None,
             str(fields.get("album") or "") or None,
             os.fsdecode(item.path) if item.path else None,
@@ -180,18 +191,32 @@ class ConfirmModal(ModalScreen[bool | str]):
                     "\nThe audio files will stay on disk.")
         return text
 
+    @staticmethod
+    def _album_names(tracks) -> tuple[str | None, str | None]:
+        """(album, artist) read off the tracks themselves, since a beets album
+        row can be untagged while its tracks are not."""
+        album = artist = None
+        for item in tracks:
+            album = album or str(item.album or "").strip() or None
+            artist = (artist or str(item.albumartist or "").strip()
+                      or str(item.artist or "").strip() or None)
+            if album and artist:
+                break
+        return album, artist
+
     def _describe_album(self, album_id, delete: bool) -> Text:
         try:
             album = library.get_album(album_id)
         except Exception:
             album = None
-        name = f"album {album_id}"
+        name = f"#{album_id}"       # only reached when the id resolves to nothing
         artist = None
         tracks: list | None = None
         if album is not None:
-            name = str(album.album or name)
-            artist = str(album.albumartist or "") or None
             tracks = list(album.items())
+            track_name, track_artist = self._album_names(tracks)
+            name = str(album.album or "") or track_name or name
+            artist = str(album.albumartist or "") or track_artist
         text = Text()
         text.append("Tuney would like to permanently delete the album "
                     if delete else "Tuney would like to remove the album ")
@@ -205,13 +230,14 @@ class ConfirmModal(ModalScreen[bool | str]):
             text.append(f" — all {count} tracks:\n\n" if count != 1 else " — 1 track:\n\n")
             for item in tracks:
                 text.append("  • ")
-                text.append(str(item.title or f"item {item.id}"), style=self.TITLE_STYLE)
+                text.append(self._track_label(item), style=self.TITLE_STYLE)
                 if delete and item.path:
                     text.append("\n    ")
                     text.append(os.fsdecode(item.path), style=self.PATH_STYLE)
                 text.append("\n")
         else:
-            text.append(".\n")
+            text.append(".\n\nThat album id isn't in your library, so there is "
+                        "nothing to remove — rejecting is safe.\n")
         text.append("\nThe audio files and album art will be deleted from disk "
                     "— this cannot be undone."
                     if delete else
