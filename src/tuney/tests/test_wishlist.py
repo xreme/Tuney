@@ -4,9 +4,10 @@ import sqlite3
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tuney import dbservice, library
-from tuney.agents import wishlist_tools
+from tuney.agents import activity, wishlist_tools
 from tuney.wishlist import Wishlist
 
 
@@ -135,11 +136,14 @@ class WishlistDataLayerTest(unittest.TestCase):
 class _FakeTrack:
     """Minimal stand-in for a beets item — just the fields reconcile reads."""
 
-    def __init__(self, id, mb_trackid="", artist="", title=""):
+    def __init__(self, id, mb_trackid="", artist="", title="", album="",
+                 albumartist=""):
         self.id = id
         self.mb_trackid = mb_trackid
         self.artist = artist
         self.title = title
+        self.album = album
+        self.albumartist = albumartist
 
 
 class ReconcileTest(unittest.TestCase):
@@ -242,12 +246,25 @@ class AddWishlistToolTest(unittest.TestCase):
         # Point the tools' shared connection at this temp DB.
         self._saved = wishlist_tools._wishlist
         wishlist_tools._wishlist = self.wl
+        # The add tools check the collection; default to an empty one so a
+        # test that isn't about ownership never touches the real beets library.
+        self._real_all_items = library.all_items
+        self._collection()
 
     def tearDown(self):
+        library.all_items = self._real_all_items
         wishlist_tools._wishlist = self._saved
         self.wl.close()
         dbservice.shutdown(self.path)
         os.unlink(self.path)
+
+    def _collection(self, *tracks):
+        library.all_items = lambda: list(tracks)
+
+    def _added(self, *items, **kwargs):
+        """add_wishlist_items' result, parsed."""
+        return json.loads(wishlist_tools.add_wishlist_items.invoke(
+            {"items": list(items), **kwargs}))
 
     def test_add_item_returns_full_row_not_just_id(self):
         row = json.loads(wishlist_tools.add_wishlist_item.invoke(
@@ -256,6 +273,7 @@ class AddWishlistToolTest(unittest.TestCase):
         self.assertEqual(row["artist"], "Radiohead")
         self.assertEqual(row["title"], "Creep")
         self.assertEqual(row["status"], "wanted")
+        self.assertIsNone(row["already_owned"])
 
     def test_add_item_persists_all_optional_fields(self):
         row = json.loads(wishlist_tools.add_wishlist_item.invoke({
@@ -270,41 +288,183 @@ class AddWishlistToolTest(unittest.TestCase):
         self.assertEqual(stored["status"], "ordered")
         self.assertEqual(stored["mb_id"], "rec-1")
 
+    def test_add_item_reports_a_song_the_user_already_owns(self):
+        self._collection(_FakeTrack(55, artist="Radiohead", title="Creep"))
+        row = json.loads(wishlist_tools.add_wishlist_item.invoke(
+            {"artist": "Radiohead", "title": "Creep"}))
+        # A single add is deliberate, so it still happens.
+        self.assertEqual(row["already_owned"], 55)
+        self.assertEqual(self.wl.get_item(row["id"])["title"], "Creep")
+
     def test_add_items_returns_every_created_row_in_order(self):
-        rows = json.loads(wishlist_tools.add_wishlist_items.invoke({"items": [
+        result = self._added(
             {"artist": "Larry June", "title": "Flex", "album": "Who Coppin",
              "mb_id": "rec-1", "year": 2024},
             {"artist": "Larry June", "title": "Who Coppin", "mb_id": "rec-2"},
-        ]}))
+        )
+        rows = result["added"]
         self.assertEqual([r["title"] for r in rows], ["Flex", "Who Coppin"])
         self.assertEqual(rows[0]["album"], "Who Coppin")
         self.assertEqual(rows[0]["mb_id"], "rec-1")
-        # Every returned id is a real persisted row.
+        self.assertEqual(result["already_owned"], [])
         for r in rows:
             self.assertEqual(self.wl.get_item(r["id"])["title"], r["title"])
 
     def test_add_items_ignores_unknown_keys(self):
-        rows = json.loads(wishlist_tools.add_wishlist_items.invoke({"items": [
-            {"artist": "A", "title": "B", "score": 0.9, "junk": "x"},
-        ]}))
+        rows = self._added({"artist": "A", "title": "B",
+                            "score": 0.9, "junk": "x"})["added"]
         self.assertEqual(len(rows), 1)
         self.assertNotIn("score", self.wl.get_item(rows[0]["id"]))
 
     def test_add_items_skips_rows_missing_both_artist_and_title(self):
-        rows = json.loads(wishlist_tools.add_wishlist_items.invoke({"items": [
+        rows = self._added(
             {"artist": "", "title": ""},
             {"notes": "orphan"},
             {"artist": "Keeps", "title": "This"},
-        ]}))
+        )["added"]
         self.assertEqual([r["title"] for r in rows], ["This"])
         self.assertEqual(len(self.wl.all_items()), 1)
 
     def test_add_items_keeps_row_with_only_a_title(self):
-        rows = json.loads(wishlist_tools.add_wishlist_items.invoke({"items": [
-            {"title": "Untitled Demo"},
-        ]}))
+        rows = self._added({"title": "Untitled Demo"})["added"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Untitled Demo")
+
+    def test_add_items_skips_owned_tracks_and_reports_them(self):
+        # Wishlisting a whole album the user already has.
+        self._collection(
+            _FakeTrack(101, artist="BabyTron", title="Genesis 1:1"),
+            _FakeTrack(102, mb_trackid="rec-myspace", artist="X", title="Y"),
+        )
+        result = self._added(
+            {"artist": "BabyTron", "title": "Genesis 1:1", "album": "BR3"},
+            {"artist": "BabyTron", "title": "Myspace", "mb_id": "rec-myspace"},
+            {"artist": "BabyTron", "title": "Silly Me", "album": "BR3"},
+        )
+
+        self.assertEqual([r["title"] for r in result["added"]], ["Silly Me"])
+        self.assertTrue(result["skipped_owned"])
+        self.assertEqual(
+            [(o["title"], o["beets_id"]) for o in result["already_owned"]],
+            [("Genesis 1:1", 101), ("Myspace", 102)])
+        self.assertFalse(any(o["added"] for o in result["already_owned"]))
+        self.assertEqual([i["title"] for i in self.wl.all_items()], ["Silly Me"])
+
+    def test_add_items_adds_owned_tracks_when_skip_owned_is_off(self):
+        # Wanting a better copy of something owned is legitimate.
+        self._collection(_FakeTrack(101, artist="BabyTron", title="Genesis 1:1"))
+        result = self._added(
+            {"artist": "BabyTron", "title": "Genesis 1:1"}, skip_owned=False)
+
+        self.assertEqual([r["title"] for r in result["added"]], ["Genesis 1:1"])
+        self.assertFalse(result["skipped_owned"])
+        self.assertTrue(result["already_owned"][0]["added"])
+
+    def test_add_items_scans_the_collection_once_for_the_whole_batch(self):
+        scans = []
+        library.all_items = lambda: scans.append(1) or []
+        self._added(*[{"artist": "A", "title": str(n)} for n in range(20)])
+        self.assertEqual(len(scans), 1)
+
+    def test_add_item_records_a_change(self):
+        before = activity.recorded_changes()
+        wishlist_tools.add_wishlist_item.invoke(
+            {"artist": "Radiohead", "title": "Creep"})
+        self.assertEqual(activity.recorded_changes(), before + 1)
+
+    def test_add_items_records_one_change_for_the_batch(self):
+        before = activity.recorded_changes()
+        self._added({"artist": "A", "title": "B"}, {"artist": "C", "title": "D"})
+        self.assertEqual(activity.recorded_changes(), before + 1)
+
+    def test_add_items_records_nothing_when_everything_was_owned(self):
+        self._collection(_FakeTrack(101, artist="BabyTron", title="Genesis 1:1"))
+        before = activity.recorded_changes()
+        result = self._added({"artist": "BabyTron", "title": "Genesis 1:1"})
+        self.assertEqual(result["added"], [])
+        self.assertEqual(activity.recorded_changes(), before)
+
+
+class CollectionHasToolTest(unittest.TestCase):
+    """collection_has — the wishlist agent's only window onto the
+    collection."""
+
+    def setUp(self):
+        self._real_all_items = library.all_items
+
+    def tearDown(self):
+        library.all_items = self._real_all_items
+
+    def _collection(self, *tracks):
+        library.all_items = lambda: list(tracks)
+
+    def _ask(self, **kwargs):
+        return json.loads(wishlist_tools.collection_has.invoke(kwargs))
+
+    def _tron(self):
+        self._collection(
+            _FakeTrack(1, artist="BabyTron", title="A", album="Megatron"),
+            _FakeTrack(2, artist="BabyTron", title="B", album="Megatron"),
+            _FakeTrack(3, artist="BabyTron & Cordae", title="Beetleborgs",
+                       album="Bin Reaper 2", albumartist="BabyTron"),
+            _FakeTrack(4, artist="Larry June", title="C", album="Spaceships"),
+        )
+
+    def test_lists_every_album_for_the_artist_with_counts(self):
+        self._tron()
+        result = self._ask(artist="BabyTron")
+        self.assertEqual(result["albums"], {"Megatron": 2, "Bin Reaper 2": 1})
+        self.assertEqual(result["owned_tracks"], 3)
+
+    def test_matches_collaborations_via_albumartist(self):
+        self._tron()
+        self.assertIn("Bin Reaper 2", self._ask(artist="BabyTron")["albums"])
+
+    def test_unknown_artist_is_an_empty_result_not_an_error(self):
+        self._tron()
+        result = self._ask(artist="Nobody At All")
+        self.assertEqual(result["albums"], {})
+        self.assertEqual(result["owned_tracks"], 0)
+
+    def test_album_check_confirms_an_owned_album(self):
+        self._tron()
+        check = self._ask(artist="BabyTron", album="megatron")["album_check"]
+        self.assertTrue(check["owned"])
+        self.assertEqual(check["matched_album"], "Megatron")
+        self.assertEqual(check["tracks_owned"], 2)
+
+    def test_album_check_reports_an_unowned_album(self):
+        self._tron()
+        check = self._ask(artist="BabyTron",
+                          album="Case Dismissed")["album_check"]
+        self.assertFalse(check["owned"])
+        self.assertEqual(check["related"], [])
+
+    def test_album_check_surfaces_a_different_edition_as_related(self):
+        # Owning "6 (Deluxe Edition)" is not owning "6", but reporting "6"
+        # as simply missing is the wrong answer.
+        self._collection(
+            _FakeTrack(1, artist="BabyTron", title="A",
+                       album="6 (Deluxe Edition)"))
+        check = self._ask(artist="BabyTron", album="6")["album_check"]
+        self.assertFalse(check["owned"])
+        self.assertEqual(check["related"], [["6 (Deluxe Edition)", 1]])
+
+    def test_track_check_answers_ownership_of_one_song(self):
+        self._tron()
+        owned = self._ask(artist="BabyTron", title="Beetleborgs")["track_check"]
+        self.assertTrue(owned["owned"])
+        self.assertEqual(owned["beets_id"], 3)
+        self.assertEqual(owned["matches"][0]["artist"], "BabyTron & Cordae")
+        missing = self._ask(artist="BabyTron", title="Nowhere")["track_check"]
+        self.assertFalse(missing["owned"])
+        self.assertIsNone(missing["beets_id"])
+
+    def test_checks_are_absent_unless_asked_for(self):
+        self._tron()
+        result = self._ask(artist="BabyTron")
+        self.assertNotIn("album_check", result)
+        self.assertNotIn("track_check", result)
 
 
 class RemoveWishlistToolTest(unittest.TestCase):
@@ -341,6 +501,84 @@ class RemoveWishlistToolTest(unittest.TestCase):
         self.assertEqual(result["removed"], 0)
         self.assertEqual(result["items"], [])
         self.assertEqual([r["id"] for r in self.wl.all_items()], [keep])
+
+
+class ArtistToolTest(unittest.TestCase):
+    """The two Last.fm-backed browsing tools; only the source is stubbed."""
+
+    def _lastfm(self, **kwargs):
+        return mock.patch.multiple(wishlist_tools.lastfm, **kwargs)
+
+    def test_top_albums_returns_ranked_rows_without_tracklists(self):
+        albums = [{"source": "lastfm", "mb_id": "mb-1", "album": "A",
+                   "artist": "Sexyy Red", "year": None, "rank": 1,
+                   "playcount": 999, "url": "u", "image": "i",
+                   "tracks": [], "track_count": None, "listeners": None,
+                   "tags": []}]
+        with self._lastfm(available=mock.DEFAULT,
+                          artist_top_albums=mock.DEFAULT) as patched:
+            patched["available"].return_value = True
+            patched["artist_top_albums"].return_value = albums
+            rows = json.loads(
+                wishlist_tools.artist_top_albums.invoke({"artist": "Sexyy Red"}))
+        self.assertEqual(rows[0]["album"], "A")
+        self.assertEqual(rows[0]["rank"], 1)
+        self.assertIsNone(rows[0]["year"])
+        # An empty tracklist here would read as "this album has no songs".
+        self.assertNotIn("tracks", rows[0])
+        self.assertNotIn("track_count", rows[0])
+
+    def test_top_albums_caps_a_runaway_limit(self):
+        with self._lastfm(available=mock.DEFAULT,
+                          artist_top_albums=mock.DEFAULT) as patched:
+            patched["available"].return_value = True
+            patched["artist_top_albums"].return_value = []
+            wishlist_tools.artist_top_albums.invoke(
+                {"artist": "Sexyy Red", "limit": 5000})
+        self.assertEqual(patched["artist_top_albums"].call_args.kwargs["limit"],
+                         wishlist_tools._MAX_ALBUMS)
+
+    def test_top_albums_without_a_key_answers_in_plain_text(self):
+        with self._lastfm(available=mock.DEFAULT) as patched:
+            patched["available"].return_value = False
+            result = wishlist_tools.artist_top_albums.invoke(
+                {"artist": "Sexyy Red"})
+        self.assertIn("No Last.fm API key", result)
+
+    def test_correction_reports_the_canonical_spelling(self):
+        with self._lastfm(available=mock.DEFAULT,
+                          artist_correction=mock.DEFAULT) as patched:
+            patched["available"].return_value = True
+            patched["artist_correction"].return_value = {
+                "source": "lastfm", "artist": "Guns N' Roses", "mb_id": "",
+                "url": "u", "corrected": True}
+            row = json.loads(wishlist_tools.correct_artist_name.invoke(
+                {"artist": "Guns and Roses"}))
+        self.assertEqual(row["artist"], "Guns N' Roses")
+        self.assertTrue(row["corrected"])
+
+    def test_an_unknown_artist_is_an_answer_not_a_failure(self):
+        """An artist Last.fm has never heard of must come back in words,
+        not as a broken lookup."""
+        error = wishlist_tools.lastfm.LastfmError(
+            "The artist you supplied could not be found")
+        with self._lastfm(available=mock.DEFAULT,
+                          artist_correction=mock.DEFAULT) as patched:
+            patched["available"].return_value = True
+            patched["artist_correction"].side_effect = error
+            result = wishlist_tools.correct_artist_name.invoke(
+                {"artist": "zzzznotanartistzzzz"})
+        self.assertIn("no artist matching", result)
+        self.assertNotIn("lookup failed", result)
+
+    def test_a_genuine_failure_still_reads_as_a_failure(self):
+        error = wishlist_tools.lastfm.LastfmError("Last.fm request failed")
+        with self._lastfm(available=mock.DEFAULT,
+                          artist_correction=mock.DEFAULT) as patched:
+            patched["available"].return_value = True
+            patched["artist_correction"].side_effect = error
+            result = wishlist_tools.correct_artist_name.invoke({"artist": "X"})
+        self.assertIn("lookup failed", result)
 
 
 if __name__ == "__main__":
