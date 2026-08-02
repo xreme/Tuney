@@ -324,6 +324,77 @@ def _fill_album_detail(entry: dict) -> None:
             entry[field] = info[field]
 
 
+# --- artists ---------------------------------------------------------------
+
+
+def artist_top_albums(artist: str, limit: int = 10,
+                      detail: bool = False) -> list[dict]:
+    """An artist's best-known releases, most-played first — the closest thing
+    Last.fm has to a discography.
+
+    `artist.getTopAlbums` ranks by playcount and carries no release date, so
+    this cannot say which release is newest. Each entry's `mbid`, where
+    Last.fm has one, is the handle for asking MusicBrainz.
+
+    `detail` folds in each result's tracklist and tags, at one album.getInfo
+    call per result.
+    """
+    if not artist.strip():
+        return []
+    data = _call("artist.getTopAlbums", artist=artist, limit=max(limit, 1),
+                 autocorrect=1)
+    matches = [match for match in
+               _as_list((data.get("topalbums") or {}).get("album"))
+               if isinstance(match, dict)]
+
+    albums = []
+    for match in matches[:limit]:
+        entry = _album(match)
+        entry["artist"] = entry["artist"] or artist
+        entry["rank"] = _int((match.get("@attr") or {}).get("rank"))
+        albums.append(entry)
+
+    if detail:
+        for entry in albums:
+            _fill_album_detail(entry)
+    return albums
+
+
+def artist_correction(artist: str) -> dict | None:
+    """The canonical Last.fm spelling of `artist`, or None if it has no entry.
+
+    Last.fm answers for correctly spelled names too, echoing them back
+    unchanged, so `corrected` — not the presence of a result — is what a caller
+    acts on. `mb_id` is often empty for artists it can nonetheless name.
+
+    Raises LastfmError when Last.fm has no such artist at all, which is a real
+    answer about the name rather than a network failure.
+    """
+    if not artist.strip():
+        return None
+    data = _call("artist.getCorrection", artist=artist)
+    # No correction at all comes back as an empty string, not an empty dict.
+    corrections = data.get("corrections")
+    if not isinstance(corrections, dict):
+        return None
+    correction = corrections.get("correction")
+    if not isinstance(correction, dict):
+        return None
+    raw = correction.get("artist")
+    if not isinstance(raw, dict):
+        return None
+    name = raw.get("name") or ""
+    if not name:
+        return None
+    return {
+        "source": SOURCE,
+        "artist": name,
+        "mb_id": raw.get("mbid") or "",
+        "url": raw.get("url") or "",
+        "corrected": name.casefold() != artist.strip().casefold(),
+    }
+
+
 # --- cover art -------------------------------------------------------------
 
 
