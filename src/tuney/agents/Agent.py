@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 
 from langchain.agents import create_agent
 from langchain.tools import BaseTool
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessageChunk, ToolMessage
 from langchain_openrouter import ChatOpenRouter
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -25,6 +25,25 @@ async def _anext_or_done(stream):
         return await anext(stream)
     except StopAsyncIteration:
         return _STREAM_DONE
+
+
+def _tool_events(data: dict):
+    """("tool" | "tool_done", {name, args}) pairs from a langgraph `updates`
+    payload — a tool call the model just requested, and one whose result has
+    come back.
+
+    Uses `updates` rather than the token stream, where a tool call arrives in
+    fragments (a name here, half the JSON arguments there).
+    """
+    for update in data.values():
+        if not isinstance(update, dict):
+            continue
+        for message in update.get("messages") or []:
+            for call in getattr(message, "tool_calls", None) or []:
+                yield "tool", {"name": call.get("name") or "",
+                               "args": call.get("args") or {}}
+            if isinstance(message, ToolMessage):
+                yield "tool_done", {"name": message.name or "", "args": {}}
 
 
 def error_detail(e: Exception) -> str:
@@ -143,7 +162,11 @@ class Agent:
         return await self._get_agent().ainvoke(self._payload(message), config=self._config())
 
     async def astream(self, message: str):
-        """Yield ("reasoning" | "text" | "interrupt", token) pairs as the assistant responds. """
+        """Yield ("reasoning" | "text" | "tool" | "tool_done" | "interrupt",
+        token) pairs as the assistant responds.
+
+        The tool events carry {name, args}; everything else carries a string.
+        """
         async for event in self._consume(self._get_agent().astream(
                 self._payload(message),
                 config=self._config(),
@@ -206,6 +229,9 @@ class Agent:
                     # The HITL interrupt value is a HITLRequest dict; surface
                     # just the action requests: [{"name", "args", "description"}]
                     yield "interrupt", data["__interrupt__"][0].value["action_requests"]
+                    continue
+                for event in _tool_events(data):
+                    yield event
                 continue
         
             chunk, meta = data

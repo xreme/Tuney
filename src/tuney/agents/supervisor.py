@@ -25,17 +25,21 @@ async def _delegate(specialist: Agent, task: str, name: str = "specialist") -> s
 
     parts: list[str] = []
     pending: list | None = None
+    token = activity.start(name, task)
 
     async def _consume(events) -> None:
         nonlocal pending
         pending = None
-        async for kind, token in events:
+        async for kind, event in events:
             if kind == "interrupt":
-                pending = token
+                pending = event
             elif kind == "text":
-                parts.append(token)
+                parts.append(event)
+            elif kind == "tool":
+                activity.set_tool(token, event["name"])
+            elif kind == "tool_done":
+                activity.set_tool(token, "")
 
-    token = activity.start(name, task)
     try:
         await _consume(specialist.astream(task))
         while pending:
