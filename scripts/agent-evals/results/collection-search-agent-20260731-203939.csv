@@ -1,0 +1,14 @@
+model,case,trajectory_ok,elapsed_s,input_tokens,output_tokens,reasoning_tokens,llm_calls,cost_usd,est_cost_usd,tool_calls,answer,error
+google/gemini-2.5-flash,filename-exact,True,4.13,12852,53,0,3,0.001947,0.003988,search_collection; search_by_filename,"Yes, you have ""KSI - KILIMANJARO (Official Video).mp3"". It is untagged.",
+google/gemini-2.5-flash,filename-semantic,True,4.01,16980,74,0,4,0.004377,0.005279,search_collection; search_by_filename; search_by_filename,"I couldn't find a track called ""Good Goodbye"" by Linkin Park in your collection. I also searched by filename for ""good goodbye"" and ""linkin park"" but found no matches.
+",
+google/gemini-2.5-flash,filename-typo,True,2.63,12705,72,0,3,0.001957,0.003991,search_collection; search_by_filename,"I can't find a track called ""Bone Marrow"" by G-Eazy in your collection. I searched for tracks with that title and artist, and also for files containing ""bonemarrow"" but found nothing.",
+google/gemini-2.5-flash,filename-artist-only,True,2.94,12713,48,0,3,0.001893,0.003934,search_collection; search_by_filename,"I couldn't find any songs by Sik Kid in your collection. I searched for ""Sik Kid"" in both your track tags and filenames.",
+google/gemini-2.5-flash,count-drake,True,1.63,8447,18,0,2,0.000759,0.002579,count_items,You have 212 songs by Drake.,
+google/gemini-2.5-flash,count-larry-june,True,1.92,8452,23,0,2,0.000773,0.002593,count_items,There are 244 songs by Larry June in your collection.,
+google/gemini-2.5-flash,count-absent-artist,True,2.94,12731,78,0,3,0.001065,0.004014,count_items; search_by_filename,"I couldn't find any songs by Taylor Swift in your library, even after checking for untagged tracks.",
+google/gemini-2.5-flash,locate-file-present,True,2.10,12984,72,0,3,0.001118,0.004075,search_collection; locate_file,"The file for Tee Grizzley's ""First Day Out"" is located at `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 02 - First Day Out.flac`.",
+google/gemini-2.5-flash,locate-drive-unmounted,True,2.39,12973,65,0,3,0.001324,0.004054,search_collection; locate_file,"The file for ""Off The Grid"" by Kanye West is located at `/Volumes/MUSIC/Music/Music/Kanye West/Donda (Deluxe)/1-05 Off The Grid.mp3`.",
+google/gemini-2.5-flash,locate-file-missing,True,2.59,12969,67,0,3,0.003147,0.004058,search_collection; locate_file,"The track ""Overlapped"" by Tee Grizzley is stored at `/Users/reme/Downloads/My Moment (2017)/Tee Grizzley - My Moment - 07 - Overlapped.flac`.",
+google/gemini-2.5-flash,metadata-you-mad-bro,True,2.73,12685,36,0,3,0.002081,0.003895,search_collection; search_by_filename,"I couldn't find any track with ""You Mad Bro"" in its metadata or filename.
+",
