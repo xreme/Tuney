@@ -1,13 +1,10 @@
 # Tuney
 
-Your local music library assistant — scan, index, search, and chat with Tuney
-to maintain your collection, get recommendations, or learn about your favourite
-artists.
+<p align="center">
+  <img src="images/tooneyImage.png" alt="Tooney, the Tuney mascot" width="180">
+</p>
 
-Tuney keeps everything on your machine: a local Beets database in your
-platform's user data directory (e.g. `~/Library/Application Support/Tuney/` on
-macOS), a terminal UI over it, and an optional AI assistant that can act on the
-library for you.
+Your local music library assistant: scan, index, search, and chat with Tuney to maintain your collection, get recommendations, or learn about your favourite artists.
 
 ## Installation
 
@@ -28,10 +25,10 @@ virtual environment. Converting audio files also needs
 Two optional API keys unlock the AI and richer metadata search. Both can be set
 under **Settings** in the TUI, where they are saved to your system keychain:
 
-| Key | What it enables |
-| --- | --- |
-| OpenRouter | The chat assistant. Without it, everything else still works. |
-| Last.fm | Wishlist searches merge Last.fm results with MusicBrainz, adding releases MusicBrainz never catalogued, plus listener counts and tags. |
+| Key        | What it enables                                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenRouter | The chat assistant. Without it, everything else still works.                                                                           |
+| Last.fm    | Wishlist searches merge Last.fm results with MusicBrainz, adding releases MusicBrainz never catalogued, plus listener counts and tags. |
 
 ## Features
 
