@@ -3,12 +3,17 @@ import json
 from langchain.tools import tool
 
 from tuney import lastfm, library
+from tuney.agents import activity
 from tuney.wishlist import Wishlist
 
 
 # A serialized wishlist item is small, but the list is unbounded; cap results
 # so one dump can't blow the model's context window (mirrors tools.py).
 _MAX_RESULTS = 100
+
+# A discography listing is capped rather than paged: nobody is choosing from
+# an artist's 200th best-known release.
+_MAX_ALBUMS = 25
 
 # Fields the user can set when adding or editing a wishlist item. `id`,
 # `date_added`, `date_updated`, and `acquired_id` are managed by the data layer.
@@ -116,17 +121,26 @@ def add_wishlist_item(artist: str, title: str, album: str = "",
 
     Returns the created item as a JSON object (including its new `id`, `artist`,
     `title`, and `album`) — relay those exact values; don't restate them from
-    memory.
+    memory. It also carries `already_owned`: the collection track id when the
+    user turns out to own this song already, otherwise null. A single add is a
+    deliberate one, so the item is added either way — but when `already_owned`
+    is set, tell the user they already have it rather than reporting a clean
+    add. (`add_wishlist_items` skips owned tracks instead, since a whole-album
+    add is rarely meant to re-add music they have.)
     """
     new_id = _wl().add_item(
         artist=artist, title=title, album=album, year=year,
         mb_id=mb_id, notes=notes, priority=priority, status=status,
     )
-    return json.dumps(_wl().get_item(new_id))
+    [beets_id] = library.owned_ids([
+        {"artist": artist, "title": title, "mb_id": mb_id}])
+    # Ungated, so nothing else tells the UI the run did real work.
+    activity.record_change()
+    return json.dumps(dict(_wl().get_item(new_id), already_owned=beets_id))
 
 
 @tool
-def add_wishlist_items(items: list[dict]):
+def add_wishlist_items(items: list[dict], skip_owned: bool = True):
     """Add several wanted tracks to the wishlist in one call — use this for a
     whole album or any multi-track add instead of calling `add_wishlist_item`
     repeatedly.
@@ -136,21 +150,112 @@ def add_wishlist_items(items: list[dict]):
     (unknown keys are ignored; `status` defaults to "wanted"). When wishlisting
     an album from `search_music`, pass the chosen release's `tracks` entries
     straight through — each already carries its own `mb_id` (empty for a
-    Last.fm album), `title`, `album`, and `year`. This is additive and needs no confirmation.
+    Last.fm album), `title`, `album`, and `year`. This is additive and needs no
+    confirmation.
 
-    Returns a JSON array of the created items, each a full object with its new
-    `id`, `artist`, `title`, and `album`. This array is the ground truth of
-    what was added — relay those exact titles and ids to the user; never
-    summarize them away or fill any in from memory.
+    Every track is checked against the user's collection first. By default the
+    ones they already own are NOT added (`skip_owned`) — a wishlist is for
+    music they don't have. Pass skip_owned=false only when the user knowingly
+    wants an owned track wishlisted anyway (wanting it on vinyl, or in a better
+    format).
+
+    Returns a JSON object:
+        {"added": [full item objects with their new ids],
+         "already_owned": [{artist, title, album, beets_id, added}],
+         "skipped_owned": true|false}
+    Both lists are ground truth — relay their exact titles and ids and never
+    fill any in from memory. `already_owned` is not a failure and must not be
+    hidden from the user: it is the answer to "do I have this already", so
+    report what was skipped and why. An empty `added` with a full
+    `already_owned` means they own every track you tried to add — say so
+    plainly instead of reporting an add that did not happen.
     """
-    created = []
-    for item in items:
-        fields = {name: item[name] for name in _EDITABLE_FIELDS if name in item}
-        if not (fields.get("artist") or fields.get("title")):
-            continue
+    entries = [item for item in items
+               if (item.get("artist") or item.get("title"))]
+    # One collection scan for the whole batch, not one per track.
+    owned = library.owned_ids(entries)
+
+    created, already_owned = [], []
+    for entry, beets_id in zip(entries, owned):
+        if beets_id is not None:
+            already_owned.append({
+                "artist": entry.get("artist", ""),
+                "title": entry.get("title", ""),
+                "album": entry.get("album", ""),
+                "beets_id": beets_id,
+                "added": not skip_owned,
+            })
+            if skip_owned:
+                continue
+        fields = {name: entry[name] for name in _EDITABLE_FIELDS if name in entry}
         new_id = _wl().add_item(**fields)
         created.append(_wl().get_item(new_id))
-    return json.dumps(created)
+
+    # A batch where every track was skipped changed nothing.
+    if created:
+        activity.record_change()
+
+    return json.dumps({
+        "added": created,
+        "already_owned": already_owned,
+        "skipped_owned": bool(skip_owned),
+    })
+
+
+@tool
+def collection_has(artist: str, album: str = "", title: str = ""):
+    """Check what the user ALREADY OWNS by an artist — the only way to know
+    whether something is in their music collection. Read-only.
+
+    The wishlist and the collection are different things, and none of the other
+    tools here can see the collection: `search_music` searches MusicBrainz and
+    Last.fm (the whole world's music, not the user's), and `search_wishlist`
+    only searches the wishlist. So any claim that the user does or does not own
+    something must come from THIS tool. Never answer "you don't have that yet"
+    from your own knowledge of an artist's discography.
+
+    Pass `artist` alone to get everything they own by them. Add `album` to ask
+    about one release, or `title` to ask about one song.
+
+    Returns a JSON object:
+        {artist, owned_tracks, albums: {album name: tracks owned, ...},
+         album_check?: {asked, owned, matched_album, tracks_owned, related},
+         track_check?: {asked, owned, beets_id, matches}}
+    `albums` is the COMPLETE list for that artist — every album, never
+    paginated or truncated — so to find a release they don't own, compare
+    candidates from `artist_top_albums` or `search_music` against it. An empty
+    `albums` with `owned_tracks` 0 means they own nothing by that artist.
+
+    In `album_check`, `owned` is true only on a real name match; `related`
+    lists albums whose name overlaps the one asked about (editions and
+    reissues — "6 (Deluxe Edition)" against "6"). A non-empty `related` with
+    `owned` false means "probably a different pressing of something they have"
+    — say that rather than calling the album missing.
+    """
+    albums = library.collection_albums(artist)
+    result = {
+        "artist": artist,
+        "owned_tracks": sum(albums.values()),
+        "albums": albums,
+    }
+    if album:
+        found = library.match_album(albums, album)
+        result["album_check"] = {
+            "asked": album,
+            "owned": found["exact"] is not None,
+            "matched_album": found["exact"][0] if found["exact"] else None,
+            "tracks_owned": found["exact"][1] if found["exact"] else 0,
+            "related": found["related"],
+        }
+    if title:
+        matches = library.find_tracks(artist, title)
+        result["track_check"] = {
+            "asked": title,
+            "owned": bool(matches),
+            "beets_id": matches[0]["id"] if matches else None,
+            "matches": matches,
+        }
+    return json.dumps(result)
 
 
 @tool
@@ -239,6 +344,101 @@ def music_information(artist: str, title: str = "", album: str = ""):
         return (f"Last.fm has nothing on {title or album} by {artist} — the "
                 "spelling may differ, or it may not be indexed.")
     return json.dumps(info)
+
+
+@tool
+def artist_top_albums(artist: str, limit: int = 10):
+    """List an artist's best-known releases, most-played first — Last.fm's
+    nearest thing to a discography. Read-only; nothing is added.
+
+    Use it for "what albums has X put out", "what should I get by X", or to
+    find an album's exact name before calling search_music(kind="album").
+
+    Returns a JSON list, most popular first:
+        {source, mb_id, album, artist, year, rank, playcount, url, image}
+
+    Two things this CANNOT tell you, because Last.fm publishes neither:
+    - `year` is always null and there are no release dates anywhere in this
+      result, so it can NOT identify an artist's newest or latest release. If
+      the user asks what is new, say that this ranks by popularity and that you
+      cannot date these — never fill a year in from your own memory.
+    - `rank` orders by playcount, so a recent release sits low simply because
+      fewer people have played it yet. A low rank does not mean old or obscure.
+
+    No tracklists come back here — this is a browsing tool. To wishlist
+    anything from the list, call search_music(kind="album") with the album name
+    and add its `tracks`. `mb_id` is the MusicBrainz RELEASE id, which is NOT
+    what a wishlist item stores, so never pass it to add_wishlist_item; it is
+    often empty, which is normal.
+
+    Answers in plain text when no Last.fm key is configured or the artist is
+    unknown — report that as the answer instead of supplying albums yourself.
+    """
+    if not lastfm.available():
+        return ("No Last.fm API key is configured, so artist discographies are "
+                "unavailable. The user can add a key in Settings or as "
+                "LASTFM_API_KEY.")
+    if not artist.strip():
+        return "Pass an artist name."
+    try:
+        albums = lastfm.artist_top_albums(
+            artist, limit=min(max(limit, 1), _MAX_ALBUMS))
+    except lastfm.LastfmError as error:
+        return f"The Last.fm lookup failed: {error}"
+    if not albums:
+        return (f"Last.fm lists no albums for {artist} — the spelling may "
+                "differ, or the artist may not be indexed. Try "
+                "correct_artist_name.")
+    # Drop the fields this endpoint never populates: an empty tracklist here
+    # would read to the model as "this release has no songs".
+    return json.dumps([
+        {field: album[field] for field in
+         ("source", "mb_id", "album", "artist", "year", "rank", "playcount",
+          "url", "image")}
+        for album in albums])
+
+
+@tool
+def correct_artist_name(artist: str):
+    """Resolve a possibly-misspelled artist name to the spelling Last.fm files
+    them under ("Guns and Roses" -> "Guns N' Roses"). Read-only.
+
+    Use it when search_music or artist_top_albums came back empty, or before
+    adding an item whose artist the user typed by ear — a wishlist row filed
+    under a misspelling will not match the collection when reconcile_wishlist
+    later checks whether they own it.
+
+    Returns JSON: {source, artist, mb_id, url, corrected}. `corrected` is true
+    only when the canonical name actually differs from what you passed; false
+    means the spelling was already right, which is a useful answer too. `mb_id`
+    is the artist's MusicBrainz id where Last.fm has one and is often empty —
+    that is normal, and it is an ARTIST id, so never store it on a wishlist
+    item, whose mb_id is a recording id.
+
+    Answers in plain text when no key is configured or Last.fm has no such
+    artist at all. Retry the original search with the corrected name before
+    telling the user nothing was found.
+    """
+    if not lastfm.available():
+        return ("No Last.fm API key is configured, so artist name corrections "
+                "are unavailable. The user can add a key in Settings or as "
+                "LASTFM_API_KEY.")
+    if not artist.strip():
+        return "Pass an artist name."
+    try:
+        match = lastfm.artist_correction(artist)
+    except lastfm.LastfmError as error:
+        # Last.fm reports an unknown artist as an error body — an answer about
+        # the name, not a broken lookup.
+        if "could not be found" in str(error).lower():
+            return (f"Last.fm has no artist matching {artist!r}, and so no "
+                    "correction for it. The name may be misspelled beyond what "
+                    "its corrections database covers, or simply not indexed.")
+        return f"The Last.fm lookup failed: {error}"
+    if not match:
+        return (f"Last.fm has no correction on file for {artist!r}; use the "
+                "name as the user gave it.")
+    return json.dumps(match)
 
 
 @tool

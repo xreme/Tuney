@@ -177,6 +177,96 @@ class AlbumTest(unittest.TestCase):
         self.assertEqual(albums[0]["tracks"], [])
 
 
+def top_albums(*names, artist="Sexyy Red") -> dict:
+    """artist.getTopAlbums: ranked, with a playcount but no release date."""
+    return {"topalbums": {"album": [
+        {"name": name, "artist": {"name": artist}, "mbid": f"mb-{index}",
+         "playcount": str(1000 - index), "url": "https://last.fm/a",
+         "image": image_list(), "@attr": {"rank": str(index + 1)}}
+        for index, name in enumerate(names)]}}
+
+
+def correction(name="Guns N' Roses", mbid="mb-artist") -> dict:
+    raw = {"name": name, "url": "https://last.fm/g"}
+    if mbid:
+        raw["mbid"] = mbid
+    return {"corrections": {"correction": {"artist": raw,
+                                           "@attr": {"index": "0"}}}}
+
+
+class ArtistTopAlbumsTest(unittest.TestCase):
+    def test_returns_albums_in_rank_order_with_release_ids(self):
+        with mock.patch.object(lastfm, "_call",
+                               return_value=top_albums("A", "B", "C")):
+            albums = lastfm.artist_top_albums("Sexyy Red")
+        self.assertEqual([a["album"] for a in albums], ["A", "B", "C"])
+        self.assertEqual([a["rank"] for a in albums], [1, 2, 3])
+        self.assertEqual(albums[0]["mb_id"], "mb-0")
+        self.assertEqual(albums[0]["artist"], "Sexyy Red")
+
+    def test_no_release_dates_come_back_from_this_endpoint(self):
+        """`year` must stay null rather than be inferred."""
+        with mock.patch.object(lastfm, "_call",
+                               return_value=top_albums("A", "B")):
+            albums = lastfm.artist_top_albums("Sexyy Red")
+        self.assertTrue(all(a["year"] is None for a in albums))
+
+    def test_an_empty_artist_never_calls_out(self):
+        with mock.patch.object(lastfm, "_call") as call:
+            self.assertEqual(lastfm.artist_top_albums("  "), [])
+        call.assert_not_called()
+
+    def test_the_limit_is_honoured_even_if_lastfm_overshoots(self):
+        with mock.patch.object(lastfm, "_call",
+                               return_value=top_albums("A", "B", "C", "D")):
+            albums = lastfm.artist_top_albums("Sexyy Red", limit=2)
+        self.assertEqual([a["album"] for a in albums], ["A", "B"])
+
+    def test_tracklists_are_only_fetched_when_detail_is_asked_for(self):
+        with mock.patch.object(lastfm, "_call",
+                               return_value=top_albums("A")) as call:
+            lastfm.artist_top_albums("Sexyy Red")
+        self.assertEqual(call.call_count, 1)
+
+
+class ArtistCorrectionTest(unittest.TestCase):
+    def test_a_misspelling_is_reported_as_corrected(self):
+        with mock.patch.object(lastfm, "_call", return_value=correction()):
+            match = lastfm.artist_correction("Guns and Roses")
+        self.assertEqual(match["artist"], "Guns N' Roses")
+        self.assertTrue(match["corrected"])
+        self.assertEqual(match["mb_id"], "mb-artist")
+
+    def test_a_name_already_correct_echoes_back_uncorrected(self):
+        """Last.fm answers for correctly spelled names too, so `corrected` —
+        not the presence of a result — is what tells the caller to retry."""
+        with mock.patch.object(lastfm, "_call",
+                               return_value=correction("Radiohead")):
+            match = lastfm.artist_correction("radiohead")
+        self.assertFalse(match["corrected"])
+
+    def test_a_correction_without_an_mbid_is_still_a_correction(self):
+        with mock.patch.object(lastfm, "_call",
+                               return_value=correction(mbid="")):
+            match = lastfm.artist_correction("Guns and Roses")
+        self.assertEqual(match["mb_id"], "")
+        self.assertTrue(match["corrected"])
+
+    def test_no_correction_on_file_comes_back_as_none(self):
+        # Last.fm sends an empty string, not an empty object, for "nothing".
+        with mock.patch.object(lastfm, "_call",
+                               return_value={"corrections": ""}):
+            self.assertIsNone(lastfm.artist_correction("Sexyy Red"))
+
+    def test_an_unknown_artist_raises_rather_than_returning_none(self):
+        """"unknown artist" and "no correction on file" are different facts,
+        so the source must not flatten one into the other."""
+        with mock.patch.object(lastfm, "_call", side_effect=lastfm.LastfmError(
+                "The artist you supplied could not be found")):
+            with self.assertRaises(lastfm.LastfmError):
+                lastfm.artist_correction("zzzznotanartistzzzz")
+
+
 class CoversTest(unittest.TestCase):
     def test_returns_one_artwork_shaped_candidate(self):
         with mock.patch.object(lastfm, "_call", return_value=album_info()):

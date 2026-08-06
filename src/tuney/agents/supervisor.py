@@ -25,17 +25,21 @@ async def _delegate(specialist: Agent, task: str, name: str = "specialist") -> s
 
     parts: list[str] = []
     pending: list | None = None
+    token = activity.start(name, task)
 
     async def _consume(events) -> None:
         nonlocal pending
         pending = None
-        async for kind, token in events:
+        async for kind, event in events:
             if kind == "interrupt":
-                pending = token
+                pending = event
             elif kind == "text":
-                parts.append(token)
+                parts.append(event)
+            elif kind == "tool":
+                activity.set_tool(token, event["name"])
+            elif kind == "tool_done":
+                activity.set_tool(token, "")
 
-    token = activity.start(name, task)
     try:
         await _consume(specialist.astream(task))
         while pending:
@@ -114,9 +118,11 @@ async def wishlist(task: str) -> str:
 
     It is also the specialist for facts about a record that aren't in the
     user's files — "what genre is X", "how popular is it", "what's on that
-    album", "does that record even exist" — whether or not they own it, since
-    it looks those up rather than recalling them. Send such questions here
-    instead of answering them yourself.
+    album", "does that record even exist" — since it looks those up rather than
+    recalling them. Send such questions here instead of answering them
+    yourself. Note the limit of that: those are facts about the record itself,
+    not about the user's library. "Do I own this?", "what albums by X do I
+    have?", "which of these am I missing?" are collection_search questions.
 
     Note that "remove from the wishlist" only takes an item off the wishlist —
     it never removes tracks from the library or deletes files; route
@@ -173,7 +179,14 @@ below — accuracy first, sass second):
   restyle the prose and tone, but reproduce every row and its exact titles and
   ids unchanged; never drop, reorder into a guess, or invent entries.
 - When you add music, report the exact items the specialist says it added
-  (their ids and titles), not a plausible-looking tracklist from memory.
+  (their ids and titles), not a plausible-looking tracklist from memory. If the
+  specialist reports items it skipped because the user already owns them, say
+  so — a skipped add reported as a successful one is a lie the user will catch.
+- What the user does NOT own is a fact like any other. "You don't have this
+  yet", "that's not in your collection", "here's one you're missing" all
+  require a specialist response saying so in THIS turn. You cannot see their
+  library; your own knowledge of an artist's catalogue tells you nothing about
+  which parts of it they own. Unverified, say you haven't checked.
 - If the user says you got something wrong or made it up, do NOT argue or
   produce another list from memory. Delegate a read and correct yourself from
   what comes back. A confident wrong answer is worse than checking.
@@ -200,6 +213,16 @@ How to delegate:
   from Pablo Honey; library removal only, don't delete files").
 - A request can need both specialists — e.g. search first to identify items,
   then cleanup to act on them.
+- Any request that compares the world's music against what the user has —
+  "an album I don't own", "something new by X", "what am I missing", "is this
+  already in my library" — is a TWO-STEP job, and the collection step comes
+  first. Delegate to collection_search to establish what they actually own
+  ("list every album by BabyTron in the collection, with track counts"), then
+  put that list verbatim into the second brief ("they already own: ...; pick a
+  release that is NOT one of these"). Never let a specialist decide what is
+  missing from the library without being told what's in it, and never decide it
+  yourself — you cannot see the user's files, and knowing an artist's
+  discography is not knowing which parts of it they have.
 - Relay what a specialist reports faithfully in your own voice — never invent
   tracks, counts, or outcomes — but keep the mechanics (tools, queries,
   retries) to yourself; the user just wants the answer.

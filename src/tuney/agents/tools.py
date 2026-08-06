@@ -124,7 +124,10 @@ def search_collection(query: str, max: int = 100, page: int = 1):
     result, retry with variations before concluding the item is missing —
     change the spacing, use a spacing-tolerant regex like
     `artist::(?i)speaker.?knockerz`, try a shorter fragment, or correct the
-    spelling — as described in the system prompt.
+    spelling — as described in the system prompt. This tool only ever reads
+    TAGS, so it cannot see a track imported without them; an empty result is
+    also the cue to call `search_by_filename`, and the collection has not been
+    searched until you have.
     """
     items = _searched(query)
     if isinstance(items, str):
@@ -133,19 +136,30 @@ def search_collection(query: str, max: int = 100, page: int = 1):
 
 @tool
 def search_by_filename(fragment: str, max: int = 100, page: int = 1):
-    """Find tracks whose audio file path on disk contains a fragment.
+    """Find tracks whose audio file path on disk contains a fragment — the only
+    way to find a track that was imported without tags.
 
     Case-insensitive substring match against each track's full file path, so
     it finds file names (`track 01`, `y2mate`), extensions (`.flac`), and
     folder names (`Downloads`). Use it when the user refers to music by file
     name — common for untagged tracks, whose title shows as their file name
-    in the collection screen — or asks what's in a folder or of a format.
+    in the collection screen — or asks what's in a folder or of a format. Also
+    call it whenever `search_collection` comes back empty: an untagged track
+    has no artist or title to match, so it answers no tag query, and only its
+    path can find it.
+
+    Pass ONE word, the most distinctive one, with no spaces and no punctuation.
+    The match is a plain substring of the whole path, and downloads separate
+    words with `_`, `-`, or nothing at all: `knockerz` finds
+    `Speaker_Knockerz_-_Rico_Story.mp3` and `SpeakerKnockerz Dap You Up.m4a`,
+    while `speaker knockerz` finds neither. File names cannot contain `:` or
+    `/` either, so search `genesis`, never `Genesis 1:1`.
 
     Each result includes the usual metadata plus the file_name it matched.
     Results are paginated like `search_collection`: `max` sets the page size
     (default and cap 100) and `page` selects a 1-based page. An empty list
-    means no file path contains the fragment — try a shorter fragment before
-    concluding the track is missing.
+    means no file path contains that fragment — try another single word (the
+    artist, then the title) before concluding the track is missing.
     """
     matches = library.search_by_filename(fragment)
     return _capped(matches, max=max, page=page, serialize=_serialize_with_file)

@@ -21,5 +21,10 @@ class TuneyApp(App):
         self.theme = "ansi-dark"
         self.push_screen(WorkspaceScreen())
 
+    def on_unmount(self) -> None:
+        # Close the connections so the WAL checkpoints before the process goes.
+        from tuney import dbservice
+        dbservice.shutdown()
+
 if __name__ == "__main__":
     TuneyApp().run()
