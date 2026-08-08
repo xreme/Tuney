@@ -6,6 +6,10 @@
 
 Your local music library assistant: scan, index, search, and chat with Tuney to maintain your collection, get recommendations, or learn about your favourite artists.
 
+## Demo
+
+[Watch the demo on YouTube](https://www.youtube.com/watch?v=DMUm_wnImWE)
+
 ## Installation
 
 Tuney uses [uv](https://docs.astral.sh/uv/) for dependency management and
