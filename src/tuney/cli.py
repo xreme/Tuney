@@ -98,16 +98,24 @@ def collection(
     output.render(shown.rows, "tracks", shown)
 
 @app.command()
-def duplicates():
+def duplicates(page: int = output.PAGE,
+               limit: int = output.LIMIT,
+               show_all: bool = output.ALL,
+               across_releases: bool = typer.Option(
+                   False, "--across-releases", "-x",
+                   help="Also show songs repeated across different releases "
+                        "(deluxe editions, compilations, singles).")):
     """List songs that exist in more than one file."""
-    groups = library.duplicates()
+    groups = library.duplicates(across_releases=across_releases)
     if not groups:
-        typer.echo("No duplicates found")
+        output.empty("No duplicates found." if across_releases else
+                     "No duplicated files found. Use --across-releases to see "
+                     "songs that repeat across editions and compilations.")
         return
-    for group in groups:
-        typer.echo(f"{group[0].artist} - {group[0].title}")
-        for item in group:
-            typer.echo(f"  {item.filepath}")
+    shown = output.paginate(groups, page, limit, show_all)
+    for group in shown.rows:
+        output.duplicate_group(group)
+    output.footer(shown, "duplicated songs")
 
 def _format_size(num_bytes: int) -> str:
     if num_bytes >= 1_073_741_824:

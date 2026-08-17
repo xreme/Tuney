@@ -941,8 +941,29 @@ def locate_file(item_id: int):
         raise FileNotFoundError(path)
     return path
 
-def duplicates():
-    """Songs that exist as more than one file, as a list of item groups."""
+def _release_key(item):
+    """Which release a copy belongs to. Editions are deliberately distinct:
+    "Blonde" and "Blonde (Deluxe Edition)" are separate releases, so a song on
+    both is not a duplicated file."""
+    return " ".join((item.album or "").casefold().split())
+
+
+def _by_release(group):
+    releases = {}
+    for item in group:
+        releases.setdefault(_release_key(item), []).append(item)
+    return releases
+
+
+def duplicates(across_releases: bool = False):
+    """Songs that exist as more than one file, as a list of item groups.
+
+    Beets matches on artist + title alone, so it flags every song shared by an
+    album and its deluxe edition — or by an album and a compilation or single.
+    Those copies are intentional, so each group is split by release and only
+    releases holding more than one copy are reported. Pass across_releases to
+    get the raw artist + title grouping instead.
+    """
     out = subprocess.run(
         ["beet", "-c", str(CONFIG), "-l", str(DB), "duplicates", "--full", "--format", "$id"],
         check=True,
@@ -955,7 +976,12 @@ def duplicates():
         # The plugin prints "<id>: <number of copies>" per item.
         item = lib.get_item(int(line.split(":")[0]))
         groups.setdefault((item.artist, item.title), []).append(item)
-    return list(groups.values())
+    if across_releases:
+        return list(groups.values())
+    return [copies
+            for group in groups.values()
+            for copies in _by_release(group).values()
+            if len(copies) > 1]
 
 def remove_item(item, delete=False, with_album=False):
     """Remove item from user's library, optional variable to also delete the file from disk"""
