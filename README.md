@@ -41,6 +41,8 @@ under **Settings** in the TUI, where they are saved to your system keychain:
 - **Chat** with an AI assistant in plain English — "how many Beatles songs do I
   have?", "rock or metal from the 90s", "clean up my duplicates". It can search,
   retag, fetch cover art and convert files, and asks before changing anything.
+  Available in the TUI, or as a one-shot answer from the shell with
+  `tuney -p "..."`.
 - **Scan** any folder into the library, with progress streaming live.
 - **Convert** between MP3, AAC, Opus, Ogg, ALAC and FLAC — either exporting
   copies or replacing the files in your library, with the originals archived
@@ -56,16 +58,58 @@ is themed.
 
 ```bash
 uv run tuney                              # open the TUI
+uv run tuney -p "how many Beatles songs do I have?"   # ask the assistant
 uv run tuney scan /path/to/music          # index a folder (defaults to .)
 uv run tuney search "artist:Radiohead"    # headless search
 uv run tuney collection                   # list everything
+uv run tuney collection --filter "radiohead 1997"     # ...or just some of it
 uv run tuney duplicates                   # songs that exist as several files
+uv run tuney wishlist list                # music you don't own yet
 uv run tuney convert "artist:Radiohead" --format alac
 ```
 
 `convert` prints what it would do and asks first; `--dry-run` shows the exact
 ffmpeg commands without changing anything. Run any command with `--help` for
 its options.
+
+### Asking the assistant from the shell
+
+`-p/--print` answers a single question and exits instead of opening the TUI.
+The answer goes to stdout and the progress notes to stderr, so a run pipes and
+redirects cleanly:
+
+```bash
+uv run tuney -p "which albums am I missing tracks from?" > report.txt
+```
+
+| Flag           | Effect                                                        |
+| -------------- | ------------------------------------------------------------- |
+| `-p`, `--print` | Ask one question, print the answer, exit.                    |
+| `-y`, `--yes`   | Approve actions the assistant asks to confirm.               |
+| `-q`, `--quiet` | Hide the tool activity notes on stderr.                      |
+
+Anything that would change your files is confirmed on the terminal first.
+Without a terminal to ask on — piped, or run from a script — those actions are
+declined rather than assumed, so `--yes` is required to let a scripted run
+retag, convert or delete.
+
+### Paging through results
+
+Listings print one page at a time rather than thousands of lines, ending with a
+footer that says where you are:
+
+```
+1-25 of 3713 tracks  ·  page 1/149  ·  --page N for more, --all for everything
+```
+
+`--page/-p`, `--limit/-n` and `--all/-a` work on `search`, `search-file`,
+`locate`, `collection`, `duplicates` and `wishlist list`. `collection` and
+`wishlist list` also take `--filter/-f`, which keeps the rows where every word
+appears somewhere in the row.
+
+`duplicates` reports repeated files within a single release by default, since a
+song appearing on both an album and its deluxe edition is a copy you meant to
+have. `--across-releases/-x` includes those too.
 
 Inside the TUI, `↑`/`↓` moves, `Enter` selects, `Escape` goes back and `q`
 quits.
