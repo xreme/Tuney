@@ -8,11 +8,28 @@ wishlist_app = typer.Typer(help="Track music you want to acquire.")
 app.add_typer(wishlist_app, name="wishlist")
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
-    """Launch the interactive Terminal UI"""
-    if ctx.invoked_subcommand is None:
-        from tuney.tui.tui import TuneyApp
-        TuneyApp().run()
+def main(
+    ctx: typer.Context,
+    prompt: str = typer.Option(
+        None, "--print", "-p", metavar="PROMPT",
+        help="Ask the assistant one question, print the answer and exit, "
+             "instead of opening the TUI."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="With -p, approve actions the assistant asks to confirm. "
+             "Without a terminal to ask on, they are declined."),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="With -p, hide the tool activity notes."),
+):
+    """Launch the interactive Terminal UI, or answer one question with -p."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if prompt is not None:
+        from tuney.agents.terminal import ask
+        ask(prompt, approve_all=yes, quiet=quiet)
+        return
+    from tuney.tui.tui import TuneyApp
+    TuneyApp().run()
 
 @app.command()
 def scan(music_dir: str = typer.Argument(None)):
