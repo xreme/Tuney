@@ -1658,6 +1658,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "rich" },
     { name = "textual" },
     { name = "typer" },
 ]
@@ -1680,6 +1681,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.10.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "requests", specifier = ">=2.32.0" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "textual", specifier = ">=8.2.7" },
     { name = "typer", specifier = ">=0.26.7" },
 ]

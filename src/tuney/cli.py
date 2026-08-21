@@ -1,7 +1,5 @@
-import os
-
 import typer
-from tuney import config, library
+from tuney import config, library, output
 from tuney.wishlist import Wishlist
 
 app = typer.Typer()
@@ -10,11 +8,28 @@ wishlist_app = typer.Typer(help="Track music you want to acquire.")
 app.add_typer(wishlist_app, name="wishlist")
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
-    """Launch the interactive Terminal UI"""
-    if ctx.invoked_subcommand is None:
-        from tuney.tui.tui import TuneyApp
-        TuneyApp().run()
+def main(
+    ctx: typer.Context,
+    prompt: str = typer.Option(
+        None, "--print", "-p", metavar="PROMPT",
+        help="Ask the assistant one question, print the answer and exit, "
+             "instead of opening the TUI."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y",
+        help="With -p, approve actions the assistant asks to confirm. "
+             "Without a terminal to ask on, they are declined."),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="With -p, hide the tool activity notes."),
+):
+    """Launch the interactive Terminal UI, or answer one question with -p."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if prompt is not None:
+        from tuney.agents.terminal import ask
+        ask(prompt, approve_all=yes, quiet=quiet)
+        return
+    from tuney.tui.tui import TuneyApp
+    TuneyApp().run()
 
 @app.command()
 def scan(music_dir: str = typer.Argument(None)):
@@ -27,47 +42,97 @@ def scan(music_dir: str = typer.Argument(None)):
         typer.echo(f"Scanned {music_dir}")
 
 @app.command()
-def search(query: str):
+def search(query: str,
+           page: int = output.PAGE,
+           limit: int = output.LIMIT,
+           show_all: bool = output.ALL):
     """Search your library by metadata or file name"""
     results = library.search_including_filenames(query)
-    for item in results:
-        typer.echo(f"{item.id} | {item.title or '(untagged)'} ({item.album})")
+    if not results:
+        output.empty(f"No tracks matching {query!r}")
+        raise typer.Exit(code=1)
+    shown = output.paginate(results, page, limit, show_all)
+    output.render(shown.rows, "tracks", shown)
 
 @app.command("search-file")
-def search_file(fragment: str):
+def search_file(fragment: str,
+                page: int = output.PAGE,
+                limit: int = output.LIMIT,
+                show_all: bool = output.ALL):
     """Search your library by file name, folder, or extension."""
     results = library.search_by_filename(fragment)
     if not results:
-        typer.echo(f"No files matching {fragment!r}")
+        output.empty(f"No files matching {fragment!r}")
         raise typer.Exit(code=1)
-    for item in results:
-        title = item.title or "(untagged)"
-        typer.echo(f"{item.id} | {title} ({os.fsdecode(item.path)})")
+    shown = output.paginate(results, page, limit, show_all)
+    output.render(shown.rows, "files", shown, paths=True)
 
 @app.command()
-def locate(query:str):
+def locate(query: str,
+           page: int = output.PAGE,
+           limit: int = output.LIMIT,
+           show_all: bool = output.ALL):
     """Search library for the path of item, by metadata or file name"""
     results = library.search_including_filenames(query)
-    for item in results:
-        typer.echo(f"{item.id} | {item.title or '(untagged)'} ({os.fsdecode(item.path)})")
+    if not results:
+        output.empty(f"No tracks matching {query!r}")
+        raise typer.Exit(code=1)
+    shown = output.paginate(results, page, limit, show_all)
+    output.render(shown.rows, "tracks", shown, paths=True)
+
+def _collection_order(item):
+    """Artist, then album, then disc and track — the order the songs were
+    meant to be read in, rather than beets' insertion order."""
+    return (
+        (item.albumartist or item.artist or "").lower(),
+        (item.album or "").lower(),
+        item.disc or 0,
+        item.track or 0,
+    )
 
 @app.command()
-def collection():
-    results = library.all_items()
-    for item in results:
-        typer.echo(f"{item.title} ({item.album})")
-
-@app.command()
-def duplicates():
-    """List songs that exist in more than one file."""
-    groups = library.duplicates()
-    if not groups:
-        typer.echo("No duplicates found")
+def collection(
+    filter_text: str = typer.Option(
+        "", "--filter", "-f",
+        help="Only show tracks where every word appears somewhere in the row."),
+    page: int = output.PAGE,
+    limit: int = output.LIMIT,
+    show_all: bool = output.ALL,
+):
+    """List every track in your library."""
+    items = library.all_items()
+    if filter_text:
+        items = [item for item in items
+                 if output.track_matches(item, filter_text)]
+        if not items:
+            output.empty(f"No tracks matching {filter_text!r}")
+            raise typer.Exit(code=1)
+    if not items:
+        output.empty("Your library is empty. Run `tuney scan <folder>` to add music.")
         return
-    for group in groups:
-        typer.echo(f"{group[0].artist} - {group[0].title}")
-        for item in group:
-            typer.echo(f"  {item.filepath}")
+    items.sort(key=_collection_order)
+    shown = output.paginate(items, page, limit, show_all)
+    output.render(shown.rows, "tracks", shown)
+
+@app.command()
+def duplicates(page: int = output.PAGE,
+               limit: int = output.LIMIT,
+               show_all: bool = output.ALL,
+               across_releases: bool = typer.Option(
+                   False, "--across-releases", "-x",
+                   help="Also show songs repeated across different releases "
+                        "(deluxe editions, compilations, singles).")):
+    """List songs that exist in more than one file."""
+    groups = library.duplicates(across_releases=across_releases)
+    if not groups:
+        output.empty("No duplicates found." if across_releases else
+                     "No duplicated files found. Use --across-releases to see "
+                     "songs that repeat across editions and compilations.")
+        return
+    shown = output.paginate(groups, page, limit, show_all)
+    for group in shown.rows:
+        output.duplicate_group(group)
+    output.footer(shown, "duplicated songs")
 
 def _format_size(num_bytes: int) -> str:
     if num_bytes >= 1_073_741_824:
@@ -180,25 +245,12 @@ def remove(id: int,
 
 # --- Wishlist ---------------------------------------------------------------
 
-# Fields scanned by `wishlist list --filter`, mirroring the collection screen's
-# "every word must appear somewhere in the row" substring matching.
-_WISHLIST_SEARCH_FIELDS = ("artist", "title", "album", "notes", "status")
-
 # Fields a MusicBrainz match can supply to fill in an item being added.
 _MUSICBRAINZ_FIELDS = ("artist", "title", "album", "year", "mb_id")
 
 
 def _wishlist() -> Wishlist:
     return Wishlist(library.DB)
-
-
-def _format_item(item: dict) -> str:
-    """One-line summary: `id | artist - title (album) [status, priority N]`."""
-    return (
-        f"{item.get('id')} | {item.get('artist', '')} - {item.get('title', '')}"
-        f" ({item.get('album', '')})"
-        f" [{item.get('status', '')}, priority {item.get('priority', 0)}]"
-    )
 
 
 def _format_candidate(candidate: dict) -> str:
@@ -213,8 +265,8 @@ def _format_candidate(candidate: dict) -> str:
 
 
 def _matches_filter(item: dict, query: str) -> bool:
-    haystack = " ".join(str(item.get(field, "")) for field in _WISHLIST_SEARCH_FIELDS).lower()
-    return all(word in haystack for word in query.lower().split())
+    return output.matches(
+        (item.get(field, "") for field in output.WISHLIST_FIELDS), query)
 
 
 def _choose_candidate(artist: str, title: str, album: str) -> dict | None:
@@ -247,19 +299,26 @@ def wishlist_list(
         "", "--filter", "-f",
         help="Only show items where every word appears somewhere in the row.",
     ),
+    page: int = output.PAGE,
+    limit: int = output.LIMIT,
+    show_all: bool = output.ALL,
 ):
-    """List wishlist items, one per line."""
+    """List wishlist items."""
     wishlist = _wishlist()
     # Auto-detect items now owned, so their status shows as acquired.
     library.reconcile_wishlist(wishlist)
     items = wishlist.all_items() or []
     if filter_text:
         items = [item for item in items if _matches_filter(item, filter_text)]
+        if not items:
+            output.empty(f"No wishlist items matching {filter_text!r}")
+            raise typer.Exit(code=1)
     if not items:
-        typer.echo("Your wishlist is empty.")
+        output.empty("Your wishlist is empty.")
         return
-    for item in items:
-        typer.echo(_format_item(item))
+    shown = output.paginate(items, page, limit, show_all)
+    output.console.print(output.wishlist_table(shown.rows))
+    output.footer(shown, "wishlist items")
 
 
 @wishlist_app.command("add")
